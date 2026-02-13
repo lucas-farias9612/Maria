@@ -7,7 +7,8 @@ import {
   Trash, 
   Table as TableIcon, 
   AlertTriangle,
-  Clock
+  Clock,
+  History
 } from 'lucide-react';
 import { clearAllData } from '../services/storageService';
 import jsPDF from 'jspdf';
@@ -44,6 +45,27 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
         ...totals,
         profit: totals.revenue - totals.expense
       }));
+  }, [data]);
+
+  const allTransactions = useMemo(() => {
+    return [
+      ...data.vendas.map(v => ({
+        id: v.id,
+        date: v.data,
+        desc: v.descricao,
+        cat: v.categoria,
+        type: 'sale' as const,
+        value: v.valorTotal
+      })),
+      ...data.despesas.map(d => ({
+        id: d.id,
+        date: d.data,
+        desc: d.descricao,
+        cat: d.categoria,
+        type: 'expense' as const,
+        value: d.valor
+      }))
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [data]);
 
   const handleExportPDF = () => {
@@ -103,29 +125,11 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
     doc.setTextColor(150);
     doc.text("Lista completa de vendas e despesas por data e hora", 14, 26);
 
-    // Prepara dados detalhados
-    const allTransactions = [
-      ...data.vendas.map(v => ({
-        date: v.data,
-        desc: v.descricao,
-        cat: v.categoria,
-        type: 'Venda',
-        value: v.valorTotal
-      })),
-      ...data.despesas.map(d => ({
-        date: d.data,
-        desc: d.descricao,
-        cat: d.categoria,
-        type: 'Despesa',
-        value: d.valor
-      }))
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
     const detailsTableData = allTransactions.map(item => [
       formatDateTimeBR(item.date),
       item.desc,
       item.cat,
-      item.type,
+      item.type === 'sale' ? 'Venda' : 'Despesa',
       formatCurrency(item.value)
     ]);
 
@@ -165,7 +169,7 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-10">
       <div className="flex justify-between items-start">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">Relatórios</h2>
@@ -227,10 +231,10 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <h4 className="font-bold mb-4 flex items-center gap-2 text-slate-700">
               <FileText className="text-pink-500" size={20} />
-              Relatório Completo
+              Relatório Completo (PDF)
             </h4>
             <p className="text-slate-500 text-sm mb-4">
-              Gere um PDF contendo o resumo mensal E a lista detalhada de todas as vendas e despesas com <strong>data e hora</strong>.
+              Gere um arquivo PDF contendo o resumo mensal e a tabela detalhada de todas as vendas e despesas.
             </p>
             
             <button 
@@ -242,8 +246,8 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
                    <FileText size={20} />
                 </div>
                 <div className="text-left">
-                  <p className="font-bold leading-none text-slate-800">Baixar PDF Detalhado</p>
-                  <p className="text-xs text-slate-400 mt-1">Inclui data e hora de cada item</p>
+                  <p className="font-bold leading-none text-slate-800">Baixar PDF</p>
+                  <p className="text-xs text-slate-400 mt-1">Imprimir ou salvar backup</p>
                 </div>
               </div>
             </button>
@@ -265,6 +269,55 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
               Limpar Todos os Dados
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Detailed History Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b flex items-center gap-2">
+          <History className="text-pink-500" size={20} />
+          <h4 className="font-bold text-slate-700">Histórico de Movimentações</h4>
+        </div>
+        <div className="overflow-x-auto max-h-[500px]">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold sticky top-0 z-10">
+              <tr>
+                <th className="px-6 py-4">Data e Hora</th>
+                <th className="px-6 py-4">Descrição</th>
+                <th className="px-6 py-4">Categoria</th>
+                <th className="px-6 py-4 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y text-sm">
+              {allTransactions.length === 0 ? (
+                <tr>
+                   <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">Nenhuma movimentação registrada.</td>
+                </tr>
+              ) : (
+                allTransactions.map(item => (
+                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 text-slate-500 font-medium whitespace-nowrap">
+                      {formatDateTimeBR(item.date)}
+                    </td>
+                    <td className="px-6 py-4 text-slate-700 font-bold">
+                      {item.desc}
+                      <span className="block text-[10px] font-normal text-slate-400 uppercase">{item.type === 'sale' ? 'Venda' : 'Despesa'}</span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-500">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${
+                          item.type === 'sale' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                        }`}>
+                          {item.cat}
+                        </span>
+                    </td>
+                    <td className={`px-6 py-4 text-right font-black ${item.type === 'sale' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {item.type === 'sale' ? '+' : '-'}{formatCurrency(item.value)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

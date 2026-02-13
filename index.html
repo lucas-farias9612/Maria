@@ -8,32 +8,884 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Delícias das Maria's - Confeitaria</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
-        /* Esconde a barra de rolagem mas permite rolar */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    </style>
-<script type="importmap">
+    
+    <!-- Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- jsPDF & AutoTable (UMD) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <!-- Import Map for React, Recharts, Lucide -->
+    <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "recharts": "https://esm.sh/recharts@2.13.0?external=react,react-dom",
+    "lucide-react": "https://esm.sh/lucide-react@0.454.0?external=react",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "recharts": "https://esm.sh/recharts@^3.7.0",
-    "jspdf": "https://esm.sh/jspdf@2.5.1",
-    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2"
+    "jspdf": "https://esm.sh/jspdf@^4.1.0",
+    "jspdf-autotable": "https://esm.sh/jspdf-autotable@^5.0.7"
   }
 }
 </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden selection:bg-pink-200">
     <div id="root" class="h-full"></div>
-    <script type="module" src="./index.tsx"></script>
+
+    <script type="text/babel" data-type="module" data-presets="typescript,react">
+        import React, { useState, useEffect, useMemo } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
+        import { 
+            LayoutDashboard, ShoppingBag, Receipt, BarChart3, AlertCircle, 
+            Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, 
+            ChevronLeft, ChevronRight, Edit3, Clock, FileText, Trash, 
+            Table as TableIcon, AlertTriangle, History 
+        } from 'lucide-react';
+
+        // jsPDF is loaded as global via script tag
+        const { jsPDF } = window.jspdf;
+
+        // === CONSTANTS ===
+        const SALE_CATEGORIES = ['Bolo', 'Docinhos', 'Salgados', 'Encomenda', 'Outros'];
+        const EXPENSE_CATEGORIES = ['Ingredientes', 'Embalagens', 'Gás', 'Energia', 'Aluguel', 'Transporte', 'Marketing', 'Outros'];
+        const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Outro'];
+        const EXPENSE_TYPES = ['Fixa', 'Variável'];
+        const APP_STORAGE_KEY = 'doce_gestao_data';
+
+        // === UTILS ===
+        const formatCurrency = (value) => {
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+            }).format(value);
+        };
+
+        const formatDateTimeBR = (dateStr) => {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        };
+
+        const getCurrentMonthYear = () => {
+            const now = new Date();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const year = now.getFullYear();
+            return `${year}-${month}`;
+        };
+
+        const getCurrentDateTimeLocal = () => {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            return now.toISOString().slice(0, 16);
+        };
+
+        const generateId = () => {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return Math.random().toString(36).substring(2, 9);
+        };
+
+        const parseBRLToNumber = (value) => {
+            const clean = value.replace(/[R$\s.]/g, '').replace(',', '.');
+            return parseFloat(clean) || 0;
+        };
+
+        // === STORAGE SERVICE ===
+        const initialData = {
+            vendas: [],
+            despesas: [],
+            config: {
+                metaLucroMensal: 3000
+            }
+        };
+
+        const getStoredData = () => {
+            const stored = localStorage.getItem(APP_STORAGE_KEY);
+            if (!stored) return initialData;
+            try {
+                return JSON.parse(stored);
+            } catch (e) {
+                console.error("Error parsing storage", e);
+                return initialData;
+            }
+        };
+
+        const saveToStorage = (data) => {
+            localStorage.setItem(APP_STORAGE_KEY, JSON.stringify(data));
+        };
+
+        const clearAllData = () => {
+            localStorage.removeItem(APP_STORAGE_KEY);
+        };
+
+        // === COMPONENTS ===
+
+        // 1. Dashboard
+        const Dashboard = ({ data, updateConfig }) => {
+            const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthYear());
+            const [showGoalEditor, setShowGoalEditor] = useState(false);
+            const [tempGoal, setTempGoal] = useState(data.config.metaLucroMensal.toString());
+
+            const monthData = useMemo(() => {
+                const [year, month] = selectedMonth.split('-');
+                const sales = data.vendas.filter(s => s.data.startsWith(selectedMonth));
+                const expenses = data.despesas.filter(e => e.data.startsWith(selectedMonth));
+                
+                const revenue = sales.reduce((acc, s) => acc + s.valorTotal, 0);
+                const cost = expenses.reduce((acc, e) => acc + e.valor, 0);
+                const profit = revenue - cost;
+
+                return { sales, expenses, revenue, cost, profit };
+            }, [data, selectedMonth]);
+
+            const dailyData = useMemo(() => {
+                const daysInMonth = new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0).getDate();
+                const chartData = [];
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const dayStr = `${selectedMonth}-${String(i).padStart(2, '0')}`;
+                    const daySales = monthData.sales.filter(s => s.data.startsWith(dayStr)).reduce((acc, s) => acc + s.valorTotal, 0);
+                    const dayExpenses = monthData.expenses.filter(e => e.data.startsWith(dayStr)).reduce((acc, e) => acc + e.valor, 0);
+                    chartData.push({ day: i, profit: daySales - dayExpenses });
+                }
+                return chartData;
+            }, [monthData, selectedMonth]);
+
+            const recentTransactions = useMemo(() => {
+                const all = [
+                    ...monthData.sales.map(s => ({ ...s, type: 'sale', value: s.valorTotal })),
+                    ...monthData.expenses.map(e => ({ ...e, type: 'expense', value: e.valor }))
+                ];
+                return all.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).slice(0, 5);
+            }, [monthData]);
+
+            const goalProgress = (monthData.profit / data.config.metaLucroMensal) * 100;
+
+            const changeMonth = (offset) => {
+                const [y, m] = selectedMonth.split('-').map(Number);
+                const date = new Date(y, m - 1 + offset, 1);
+                setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="flex items-center justify-between bg-white p-2 rounded-xl shadow-sm border border-slate-100">
+                        <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ChevronLeft /></button>
+                        <span className="font-bold text-lg text-slate-700 capitalize">
+                            {new Date(selectedMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                        </span>
+                        <button onClick={() => changeMonth(1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ChevronRight /></button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <article className="bg-emerald-500 text-white p-4 rounded-2xl shadow-lg shadow-emerald-500/20">
+                            <div className="flex items-center gap-2 mb-1 opacity-90">
+                                <TrendingUp size={16} />
+                                <span className="text-xs font-bold uppercase">Entradas</span>
+                            </div>
+                            <p className="text-xl font-bold truncate">{formatCurrency(monthData.revenue)}</p>
+                        </article>
+                        
+                        <article className="bg-rose-500 text-white p-4 rounded-2xl shadow-lg shadow-rose-500/20">
+                            <div className="flex items-center gap-2 mb-1 opacity-90">
+                                <TrendingDown size={16} />
+                                <span className="text-xs font-bold uppercase">Saídas</span>
+                            </div>
+                            <p className="text-xl font-bold truncate">{formatCurrency(monthData.cost)}</p>
+                        </article>
+                    </div>
+
+                    <article className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-center">
+                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Lucro Líquido</p>
+                        <h2 className={`text-4xl font-black ${monthData.profit >= 0 ? 'text-slate-800' : 'text-rose-500'}`}>
+                            {formatCurrency(monthData.profit)}
+                        </h2>
+                        {monthData.revenue > 0 && (
+                            <span className="inline-block mt-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold">
+                                Margem: {((monthData.profit / monthData.revenue) * 100).toFixed(0)}%
+                            </span>
+                        )}
+                    </article>
+
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-bold text-slate-700 text-sm">Meta Mensal</h3>
+                            <button onClick={() => setShowGoalEditor(!showGoalEditor)} className="text-pink-500">
+                                <Edit3 size={16} />
+                            </button>
+                        </div>
+
+                        {showGoalEditor ? (
+                            <div className="flex gap-2 mb-4">
+                                <input type="number" value={tempGoal} onChange={e => setTempGoal(e.target.value)} className="w-full p-2 border rounded-lg bg-slate-50" />
+                                <button onClick={() => { updateConfig(parseFloat(tempGoal)); setShowGoalEditor(false); }} className="bg-pink-500 text-white px-4 rounded-lg font-bold">OK</button>
+                            </div>
+                        ) : (
+                            <div className="relative pt-1">
+                                <div className="flex items-end justify-between mb-2">
+                                    <span className="text-xs font-bold text-slate-400">{Math.max(0, goalProgress).toFixed(0)}%</span>
+                                    <span className="text-xs font-bold text-slate-400">{formatCurrency(data.config.metaLucroMensal)}</span>
+                                </div>
+                                <div className="overflow-hidden h-3 text-xs flex rounded-full bg-slate-100">
+                                    <div style={{ width: `${Math.min(100, Math.max(0, goalProgress))}%` }} 
+                                        className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-pink-500 transition-all duration-1000"></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="h-32 w-full bg-white rounded-2xl shadow-sm border border-slate-100 p-2 pt-4">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={dailyData}>
+                                <defs>
+                                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#ec4899" stopOpacity={0.1}/>
+                                        <stop offset="95%" stopColor="#ec4899" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
+                                <Tooltip 
+                                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    itemStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#ec4899' }}
+                                    labelStyle={{ display: 'none' }}
+                                    formatter={(value) => [formatCurrency(value), '']}
+                                />
+                                <Area type="monotone" dataKey="profit" stroke="#ec4899" strokeWidth={2} fillOpacity={1} fill="url(#colorProfit)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    <div className="space-y-2">
+                        <h3 className="font-bold text-slate-700 px-1 text-sm">Últimas Movimentações</h3>
+                        {recentTransactions.length === 0 ? (
+                            <p className="text-center text-slate-400 text-xs py-4">Nenhuma movimentação este mês.</p>
+                        ) : (
+                            recentTransactions.map((item) => (
+                                <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0 ${item.type === 'sale' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                                            {item.type === 'sale' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-sm font-bold text-slate-700 truncate">{item.descricao}</span>
+                                            <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                                                <Clock size={10} />
+                                                <span>{formatDateTimeBR(item.data)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <span className={`font-bold text-sm whitespace-nowrap ml-2 ${item.type === 'sale' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {item.type === 'sale' ? '+' : '-'}{formatCurrency(item.value)}
+                                    </span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // 2. SalesView
+        const SalesView = ({ vendas, onAdd, onUpdate, onDelete }) => {
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingSale, setEditingSale] = useState(null);
+            const [search, setSearch] = useState('');
+            const [filterCategory, setFilterCategory] = useState('all');
+            const [displayValue, setDisplayValue] = useState('');
+
+            const [formData, setFormData] = useState({
+                data: getCurrentDateTimeLocal(),
+                descricao: '',
+                categoria: 'Bolo',
+                quantidade: 1,
+                valorTotal: 0,
+                formaPagamento: 'Pix',
+                observacao: ''
+            });
+
+            const filteredVendas = vendas.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).filter(v => {
+                const matchesSearch = v.descricao.toLowerCase().includes(search.toLowerCase());
+                const matchesCategory = filterCategory === 'all' || v.categoria === filterCategory;
+                return matchesSearch && matchesCategory;
+            });
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!formData.data || (formData.valorTotal || 0) <= 0) return;
+
+                if (editingSale) {
+                    onUpdate({ ...editingSale, ...formData });
+                } else {
+                    onAdd({ ...formData, id: generateId() });
+                }
+                closeModal();
+            };
+
+            const closeModal = () => {
+                setIsModalOpen(false);
+                setEditingSale(null);
+                setDisplayValue('');
+                setFormData({
+                    data: getCurrentDateTimeLocal(),
+                    descricao: '',
+                    categoria: 'Bolo',
+                    quantidade: 1,
+                    valorTotal: 0,
+                    formaPagamento: 'Pix',
+                    observacao: ''
+                });
+            };
+
+            const openEdit = (sale) => {
+                setEditingSale(sale);
+                setFormData(sale);
+                setDisplayValue(sale.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+                setIsModalOpen(true);
+            };
+
+            const handleValueChange = (e) => {
+                const value = e.target.value;
+                setDisplayValue(value);
+                setFormData(prev => ({ ...prev, valorTotal: parseBRLToNumber(value) }));
+            };
+
+            const handleDelete = (id) => {
+                if (window.confirm('Tem certeza que deseja excluir esta venda?')) {
+                    onDelete(id);
+                }
+            };
+
+            return (
+                <section className="space-y-4">
+                    <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Buscar venda..."
+                                    className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
+                            </div>
+                            <button onClick={() => setIsModalOpen(true)} className="bg-pink-500 text-white p-3 rounded-xl shadow-md shadow-pink-200 active:scale-95 transition-transform">
+                                <Plus size={24} />
+                            </button>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                            <button onClick={() => setFilterCategory('all')} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors ${filterCategory === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>Todos</button>
+                            {SALE_CATEGORIES.map(cat => (
+                                <button key={cat} onClick={() => setFilterCategory(cat)} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors ${filterCategory === cat ? 'bg-pink-500 text-white border-pink-500' : 'bg-white text-slate-600 border-slate-200'}`}>{cat}</button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        {filteredVendas.length === 0 ? (
+                            <div className="text-center py-10 text-slate-400"><p>Nenhuma venda encontrada.</p></div>
+                        ) : (
+                            filteredVendas.map((venda) => (
+                                <article key={venda.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-start">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-xs text-slate-400 font-medium">{formatDateTimeBR(venda.data)}</span>
+                                            <span className="px-2 py-0.5 rounded-md bg-pink-50 text-pink-700 text-[10px] font-bold uppercase tracking-wide">{venda.categoria}</span>
+                                        </div>
+                                        <h3 className="font-bold text-slate-800 text-base">{venda.descricao}</h3>
+                                        <p className="text-xs text-slate-500 mt-0.5">{venda.quantidade}x • {venda.formaPagamento}</p>
+                                        {venda.observacao && <p className="text-xs text-slate-400 mt-2 italic bg-slate-50 p-1.5 rounded">"{venda.observacao}"</p>}
+                                    </div>
+                                    <div className="flex flex-col items-end gap-3 ml-2">
+                                        <span className="font-bold text-lg text-slate-900">{formatCurrency(venda.valorTotal)}</span>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => openEdit(venda)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit2 size={16} /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(venda.id); }} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-lg"><Trash2 size={16} /></button>
+                                        </div>
+                                    </div>
+                                </article>
+                            ))
+                        )}
+                    </div>
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl animate-in slide-in-from-bottom-10 duration-200">
+                                <div className="flex items-center justify-between p-4 border-b">
+                                    <h2 className="font-bold text-lg">{editingSale ? 'Editar Venda' : 'Nova Venda'}</h2>
+                                    <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
+                                </div>
+                                <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Data e Hora</label>
+                                            <input type="datetime-local" required className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Valor Total (R$)</label>
+                                            <input type="text" inputMode="decimal" required placeholder="0,00" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500 font-bold text-lg" value={displayValue} onChange={handleValueChange} />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">Descrição</label>
+                                        <input type="text" required placeholder="O que foi vendido?" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500" value={formData.descricao} onChange={e => setFormData({...formData, descricao: e.target.value})} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Categoria</label>
+                                            <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500" value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value})}>
+                                                {SALE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Pagamento</label>
+                                            <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500" value={formData.formaPagamento} onChange={e => setFormData({...formData, formaPagamento: e.target.value})}>
+                                                {PAYMENT_METHODS.map(p => <option key={p} value={p}>{p}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">Observação</label>
+                                        <textarea rows={2} className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500" value={formData.observacao} onChange={e => setFormData({...formData, observacao: e.target.value})}></textarea>
+                                    </div>
+                                    <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform mt-2">
+                                        {editingSale ? 'Salvar Alterações' : 'Confirmar Venda'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </section>
+            );
+        };
+
+        // 3. ExpensesView
+        const ExpensesView = ({ despesas, onAdd, onUpdate, onDelete }) => {
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingExpense, setEditingExpense] = useState(null);
+            const [search, setSearch] = useState('');
+            const [filterCategory, setFilterCategory] = useState('all');
+            const [displayValue, setDisplayValue] = useState('');
+
+            const [formData, setFormData] = useState({
+                data: getCurrentDateTimeLocal(),
+                descricao: '',
+                categoria: 'Ingredientes',
+                valor: 0,
+                tipo: 'Variável',
+                observacao: ''
+            });
+
+            const filteredDespesas = despesas.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).filter(e => {
+                const matchesSearch = e.descricao.toLowerCase().includes(search.toLowerCase());
+                const matchesCategory = filterCategory === 'all' || e.categoria === filterCategory;
+                return matchesSearch && matchesCategory;
+            });
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!formData.data || (formData.valor || 0) <= 0) return;
+
+                if (editingExpense) {
+                    onUpdate({ ...editingExpense, ...formData });
+                } else {
+                    onAdd({ ...formData, id: generateId() });
+                }
+                closeModal();
+            };
+
+            const closeModal = () => {
+                setIsModalOpen(false);
+                setEditingExpense(null);
+                setDisplayValue('');
+                setFormData({
+                    data: getCurrentDateTimeLocal(),
+                    descricao: '',
+                    categoria: 'Ingredientes',
+                    valor: 0,
+                    tipo: 'Variável',
+                    observacao: ''
+                });
+            };
+
+            const openEdit = (expense) => {
+                setEditingExpense(expense);
+                setFormData(expense);
+                setDisplayValue(expense.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
+                setIsModalOpen(true);
+            };
+
+            const handleValueChange = (e) => {
+                const value = e.target.value;
+                setDisplayValue(value);
+                setFormData(prev => ({ ...prev, valor: parseBRLToNumber(value) }));
+            };
+
+            const handleDelete = (id) => {
+                if (window.confirm('Tem certeza que deseja excluir esta despesa?')) {
+                    onDelete(id);
+                }
+            };
+
+            return (
+                <section className="space-y-4">
+                    <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                <input type="text" placeholder="Buscar despesa..." className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-rose-500 text-sm" value={search} onChange={(e) => setSearch(e.target.value)} />
+                            </div>
+                            <button onClick={() => setIsModalOpen(true)} className="bg-rose-500 text-white p-3 rounded-xl shadow-md shadow-rose-200 active:scale-95 transition-transform">
+                                <Plus size={24} />
+                            </button>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                            <button onClick={() => setFilterCategory('all')} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors ${filterCategory === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>Todas</button>
+                            {EXPENSE_CATEGORIES.map(cat => (
+                                <button key={cat} onClick={() => setFilterCategory(cat)} className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors ${filterCategory === cat ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-600 border-slate-200'}`}>{cat}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="space-y-3">
+                        {filteredDespesas.length === 0 ? (
+                            <div className="text-center py-10 text-slate-400"><p>Nenhuma despesa encontrada.</p></div>
+                        ) : (
+                            filteredDespesas.map((expense) => (
+                                <article key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-start border-l-4 border-l-rose-400">
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-xs text-slate-400 font-medium">{formatDateTimeBR(expense.data)}</span>
+                                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold uppercase">{expense.tipo}</span>
+                                        </div>
+                                        <h3 className="font-bold text-slate-800 text-base">{expense.descricao}</h3>
+                                        <p className="text-xs text-rose-500 font-medium mt-0.5">{expense.categoria}</p>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-3 ml-2">
+                                        <span className="font-bold text-lg text-rose-600">{formatCurrency(expense.valor)}</span>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => openEdit(expense)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg"><Edit2 size={16} /></button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleDelete(expense.id); }} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-lg"><Trash2 size={16} /></button>
+                                        </div>
+                                    </div>
+                                </article>
+                            ))
+                        )}
+                    </div>
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl animate-in slide-in-from-bottom-10 duration-200">
+                                <div className="flex items-center justify-between p-4 border-b">
+                                    <h2 className="font-bold text-lg">{editingExpense ? 'Editar Despesa' : 'Nova Despesa'}</h2>
+                                    <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
+                                </div>
+                                <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Data e Hora</label>
+                                            <input type="datetime-local" required className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Valor (R$)</label>
+                                            <input type="text" inputMode="decimal" required placeholder="0,00" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500 font-bold text-lg" value={displayValue} onChange={handleValueChange} />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase">Descrição</label>
+                                        <input type="text" required placeholder="Gasto com o quê?" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500" value={formData.descricao} onChange={e => setFormData({...formData, descricao: e.target.value})} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Categoria</label>
+                                            <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500" value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value})}>
+                                                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+                                            <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500" value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value})}>
+                                                {EXPENSE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-rose-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform mt-2">
+                                        {editingExpense ? 'Salvar Alterações' : 'Confirmar Despesa'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </section>
+            );
+        };
+
+        // 4. ReportsView
+        const ReportsView = ({ data, setData, showNotification }) => {
+            const currentDateTime = formatDateTimeBR(new Date().toISOString());
+
+            const monthlySummary = useMemo(() => {
+                const summary = {};
+                data.vendas.forEach(v => {
+                    const monthKey = v.data.substring(0, 7);
+                    if (!summary[monthKey]) summary[monthKey] = { revenue: 0, expense: 0 };
+                    summary[monthKey].revenue += v.valorTotal;
+                });
+                data.despesas.forEach(e => {
+                    const monthKey = e.data.substring(0, 7);
+                    if (!summary[monthKey]) summary[monthKey] = { revenue: 0, expense: 0 };
+                    summary[monthKey].expense += e.valor;
+                });
+                return Object.entries(summary).sort((a, b) => b[0].localeCompare(a[0])).map(([month, totals]) => ({
+                    month, ...totals, profit: totals.revenue - totals.expense
+                }));
+            }, [data]);
+
+            const allTransactions = useMemo(() => {
+                return [
+                    ...data.vendas.map(v => ({ id: v.id, date: v.data, desc: v.descricao, cat: v.categoria, type: 'sale', value: v.valorTotal })),
+                    ...data.despesas.map(d => ({ id: d.id, date: d.data, desc: d.descricao, cat: d.categoria, type: 'expense', value: d.valor }))
+                ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            }, [data]);
+
+            const handleExportPDF = () => {
+                const doc = new jsPDF();
+                const currentDate = new Date();
+
+                doc.setFontSize(22);
+                doc.setTextColor(236, 72, 153);
+                doc.text("Delícias das Maria's", 14, 20);
+                doc.setFontSize(14);
+                doc.setTextColor(100);
+                doc.text("Relatório Financeiro - Resumo", 14, 30);
+                doc.setFontSize(10);
+                doc.setTextColor(150);
+                doc.text(`Gerado em: ${currentDate.toLocaleDateString('pt-BR')} às ${currentDate.toLocaleTimeString('pt-BR')}`, 14, 38);
+
+                const summaryTableData = monthlySummary.map(item => [
+                    new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+                    formatCurrency(item.revenue),
+                    formatCurrency(item.expense),
+                    formatCurrency(item.profit)
+                ]);
+
+                const totalRevenue = monthlySummary.reduce((acc, curr) => acc + curr.revenue, 0);
+                const totalExpense = monthlySummary.reduce((acc, curr) => acc + curr.expense, 0);
+                const totalProfit = totalRevenue - totalExpense;
+
+                doc.autoTable({
+                    head: [['Mês', 'Receitas', 'Despesas', 'Lucro']],
+                    body: summaryTableData,
+                    startY: 45,
+                    styles: { fontSize: 11, cellPadding: 5 },
+                    headStyles: { fillColor: [236, 72, 153], textColor: 255, fontStyle: 'bold' },
+                    alternateRowStyles: { fillColor: [253, 242, 248] },
+                    columnStyles: {
+                        0: { cellWidth: 'auto', fontStyle: 'bold' },
+                        1: { halign: 'right', textColor: [16, 185, 129] },
+                        2: { halign: 'right', textColor: [225, 29, 72] },
+                        3: { halign: 'right', fontStyle: 'bold' }
+                    },
+                    foot: [['TOTAL GERAL', formatCurrency(totalRevenue), formatCurrency(totalExpense), formatCurrency(totalProfit)]],
+                    footStyles: { fillColor: [241, 245, 249], textColor: 50, fontStyle: 'bold' }
+                });
+
+                doc.addPage();
+                doc.setFontSize(16);
+                doc.setTextColor(100);
+                doc.text("Detalhamento de Movimentações", 14, 20);
+                doc.setFontSize(10);
+                doc.setTextColor(150);
+                doc.text("Lista completa de vendas e despesas por data e hora", 14, 26);
+
+                const detailsTableData = allTransactions.map(item => [
+                    formatDateTimeBR(item.date), item.desc, item.cat, item.type === 'sale' ? 'Venda' : 'Despesa', formatCurrency(item.value)
+                ]);
+
+                doc.autoTable({
+                    head: [['Data e Hora', 'Descrição', 'Categoria', 'Tipo', 'Valor']],
+                    body: detailsTableData,
+                    startY: 35,
+                    styles: { fontSize: 9, cellPadding: 3 },
+                    headStyles: { fillColor: [71, 85, 105], textColor: 255, fontStyle: 'bold' },
+                    columnStyles: { 0: { cellWidth: 35 }, 3: { fontStyle: 'bold' }, 4: { halign: 'right' } },
+                    didParseCell: (data) => {
+                        if (data.section === 'body' && data.column.index === 3) {
+                            if (data.cell.raw === 'Venda') data.cell.styles.textColor = [16, 185, 129];
+                            else data.cell.styles.textColor = [225, 29, 72];
+                        }
+                    }
+                });
+
+                doc.save(`relatorio_completo_${currentDate.toISOString().split('T')[0]}.pdf`);
+                showNotification('Relatório completo (PDF) gerado!');
+            };
+
+            const handleReset = () => {
+                if (confirm('ATENÇÃO: Isso apagará TODOS os dados do sistema permanentemente.')) {
+                    if (confirm('Tem certeza? Essa ação não pode ser desfeita.')) {
+                        clearAllData();
+                        window.location.reload();
+                    }
+                }
+            };
+
+            return (
+                <div className="space-y-8 pb-10">
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-800">Relatórios</h2>
+                            <p className="text-slate-500">Visualize o desempenho e exporte os dados.</p>
+                        </div>
+                        <div className="text-right hidden sm:block">
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 rounded-full text-xs font-bold text-slate-500"><Clock size={12} /> Atualizado: {currentDateTime}</div>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                            <div className="p-6 border-b flex items-center justify-between">
+                                <div className="flex items-center gap-2"><TableIcon className="text-pink-500" size={20} /><h4 className="font-bold text-slate-700">Resumo por Mês</h4></div>
+                                <span className="sm:hidden text-[10px] text-slate-400 font-medium">{currentDateTime}</span>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold"><tr><th className="px-6 py-4">Mês</th><th className="px-6 py-4">Receitas</th><th className="px-6 py-4">Despesas</th><th className="px-6 py-4 text-right">Lucro</th></tr></thead>
+                                    <tbody className="divide-y text-sm">
+                                        {monthlySummary.map(item => (
+                                            <tr key={item.month} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 font-bold capitalize text-slate-700">{new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</td>
+                                                <td className="px-6 py-4 text-emerald-600 font-medium">{formatCurrency(item.revenue)}</td>
+                                                <td className="px-6 py-4 text-rose-600 font-medium">{formatCurrency(item.expense)}</td>
+                                                <td className={`px-6 py-4 text-right font-black ${item.profit >= 0 ? 'text-slate-700' : 'text-rose-600'}`}>{formatCurrency(item.profit)}</td>
+                                            </tr>
+                                        ))}
+                                        {monthlySummary.length === 0 && <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">Nenhum dado registrado ainda.</td></tr>}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div className="space-y-6">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                <h4 className="font-bold mb-4 flex items-center gap-2 text-slate-700"><FileText className="text-pink-500" size={20} /> Relatório Completo (PDF)</h4>
+                                <p className="text-slate-500 text-sm mb-4">Gere um arquivo PDF contendo o resumo mensal e a tabela detalhada de todas as vendas e despesas.</p>
+                                <button onClick={handleExportPDF} className="w-full flex items-center justify-between px-4 py-4 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl transition-all group active:scale-[0.98]">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-pink-100 p-2 rounded-lg text-pink-600 group-hover:bg-pink-200 transition-colors"><FileText size={20} /></div>
+                                        <div className="text-left"><p className="font-bold leading-none text-slate-800">Baixar PDF</p><p className="text-xs text-slate-400 mt-1">Imprimir ou salvar backup</p></div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div className="bg-rose-50 p-6 rounded-2xl shadow-sm border border-rose-100">
+                                <h4 className="font-bold mb-2 flex items-center gap-2 text-rose-700"><AlertTriangle size={20} /> Zona de Perigo</h4>
+                                <p className="text-rose-600 text-sm mb-4">Deseja recomeçar do zero? Esta ação irá apagar todas as vendas e despesas registradas.</p>
+                                <button onClick={handleReset} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"><Trash size={18} /> Limpar Todos os Dados</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="p-6 border-b flex items-center gap-2"><History className="text-pink-500" size={20} /><h4 className="font-bold text-slate-700">Histórico de Movimentações</h4></div>
+                        <div className="overflow-x-auto max-h-[500px]">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold sticky top-0 z-10"><tr><th className="px-6 py-4">Data e Hora</th><th className="px-6 py-4">Descrição</th><th className="px-6 py-4">Categoria</th><th className="px-6 py-4 text-right">Valor</th></tr></thead>
+                                <tbody className="divide-y text-sm">
+                                    {allTransactions.length === 0 ? (
+                                        <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">Nenhuma movimentação registrada.</td></tr>
+                                    ) : (
+                                        allTransactions.map(item => (
+                                            <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="px-6 py-4 text-slate-500 font-medium whitespace-nowrap">{formatDateTimeBR(item.date)}</td>
+                                                <td className="px-6 py-4 text-slate-700 font-bold">{item.desc}<span className="block text-[10px] font-normal text-slate-400 uppercase">{item.type === 'sale' ? 'Venda' : 'Despesa'}</span></td>
+                                                <td className="px-6 py-4 text-slate-500"><span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${item.type === 'sale' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{item.cat}</span></td>
+                                                <td className={`px-6 py-4 text-right font-black ${item.type === 'sale' ? 'text-emerald-600' : 'text-rose-600'}`}>{item.type === 'sale' ? '+' : '-'}{formatCurrency(item.value)}</td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // === APP ROOT ===
+        const App = () => {
+            const [data, setData] = useState(() => getStoredData());
+            const [currentView, setCurrentView] = useState('dashboard');
+            const [notification, setNotification] = useState(null);
+
+            useEffect(() => { saveToStorage(data); }, [data]);
+
+            const showNotification = (message, type = 'success') => {
+                setNotification({ message, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            const addSale = (sale) => { setData(prev => ({ ...prev, vendas: [sale, ...prev.vendas] })); showNotification('Venda adicionada!'); };
+            const updateSale = (updatedSale) => { setData(prev => ({ ...prev, vendas: prev.vendas.map(s => s.id === updatedSale.id ? updatedSale : s) })); showNotification('Venda atualizada!'); };
+            const deleteSale = (id) => { setData(prev => ({ ...prev, vendas: prev.vendas.filter(s => s.id !== id) })); showNotification('Venda removida!'); };
+            const addExpense = (expense) => { setData(prev => ({ ...prev, despesas: [expense, ...prev.despesas] })); showNotification('Despesa adicionada!'); };
+            const updateExpense = (updatedExpense) => { setData(prev => ({ ...prev, despesas: prev.despesas.map(e => e.id === updatedExpense.id ? updatedExpense : e) })); showNotification('Despesa atualizada!'); };
+            const deleteExpense = (id) => { setData(prev => ({ ...prev, despesas: prev.despesas.filter(e => e.id !== id) })); showNotification('Despesa removida!'); };
+            const updateConfig = (meta) => { setData(prev => ({ ...prev, config: { ...prev.config, metaLucroMensal: meta } })); showNotification('Meta atualizada!'); };
+
+            const NavItem = ({ id, icon: Icon, label, isActive, onClick }) => (
+                <li className="flex-1">
+                    <button onClick={onClick} className={`w-full flex flex-col items-center justify-center h-full gap-1 pt-1 ${isActive ? 'text-pink-500' : 'text-slate-400 hover:text-slate-600'}`}>
+                        <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                        <span className="text-[10px] font-medium">{label}</span>
+                    </button>
+                </li>
+            );
+
+            return (
+                <div className="flex flex-col h-full max-w-md mx-auto bg-slate-50 md:max-w-full md:border-x md:border-slate-200">
+                    <header className="bg-white px-4 py-3 border-b shadow-sm sticky top-0 z-30 flex items-center justify-between shrink-0">
+                        <div className="flex items-center gap-2"><div className="bg-pink-500 p-1.5 rounded-lg"><ShoppingBag className="w-5 h-5 text-white" /></div><h1 className="font-bold text-lg text-slate-800">Delícias das Maria's</h1></div>
+                    </header>
+                    {notification && (
+                        <div className={`fixed top-16 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>{notification.message}</div>
+                    )}
+                    <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 scroll-smooth">
+                        {currentView === 'dashboard' && <Dashboard data={data} updateConfig={updateConfig} />}
+                        {currentView === 'vendas' && <SalesView vendas={data.vendas} onAdd={addSale} onUpdate={updateSale} onDelete={deleteSale} />}
+                        {currentView === 'despesas' && <ExpensesView despesas={data.despesas} onAdd={addExpense} onUpdate={updateExpense} onDelete={deleteExpense} />}
+                        {currentView === 'relatorios' && <ReportsView data={data} setData={setData} showNotification={showNotification} />}
+                    </main>
+                    <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-md md:max-w-full pb-safe z-40">
+                        <ul className="flex justify-around items-center h-16">
+                            <NavItem id="dashboard" icon={LayoutDashboard} label="Início" isActive={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
+                            <NavItem id="vendas" icon={ShoppingBag} label="Vendas" isActive={currentView === 'vendas'} onClick={() => setCurrentView('vendas')} />
+                            <NavItem id="despesas" icon={Receipt} label="Despesas" isActive={currentView === 'despesas'} onClick={() => setCurrentView('despesas')} />
+                            <NavItem id="relatorios" icon={BarChart3} label="Relatórios" isActive={currentView === 'relatorios'} onClick={() => setCurrentView('relatorios')} />
+                        </ul>
+                    </nav>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
 </body>
 </html>

@@ -5,29 +5,29 @@ Sistema de gerenciamento financeiro completo para confeitarias, focado em facili
 
 ## ✨ Funcionalidades
 
-- **Dashboard Inteligente**: Acompanhamento de metas, lucro líquido, receitas e despesas mensais.
-- **Controle de Vendas**: Registro detalhado de pedidos por categoria e forma de pagamento.
-- **Gestão de Despesas**: Controle de custos fixos e variáveis (ingredientes, embalagens, etc).
-- **Relatórios**: Histórico mensal e ferramentas de backup (Exportação/Importação em JSON).
-- **100% Offline**: Todos os dados são salvos de forma segura no seu navegador (LocalStorage).
+- **Dashboard Inteligente**: Acompanhamento de metas, lucro líquido, receitas e despesas mensais, com gráfico de área e resumo diário.
+- **Controle de Vendas**: Registro detalhado com Data e Hora, categoria e forma de pagamento.
+- **Gestão de Despesas**: Controle de custos fixos e variáveis.
+- **Relatórios Completos**: 
+  - Resumo mensal de lucro.
+  - Tabela detalhada de movimentações na tela.
+  - Exportação de PDF profissional com histórico completo.
+- **100% Offline**: Todos os dados são salvos no navegador (LocalStorage).
 
-## 🚀 Tecnologias Utilizadas
+## 🚀 Como usar (GitHub Pages)
 
-- **React** (Componentização)
-- **TypeScript** (Segurança de tipos)
-- **Tailwind CSS** (Design moderno e responsivo)
-- **Lucide React** (Ícones)
-- **Recharts** (Gráficos interativos)
+O sistema foi convertido para um **Arquivo Único (Single File)** para facilitar a hospedagem.
 
-## 📦 Como usar
+1. Faça o upload do arquivo `index.html` para o seu repositório GitHub.
+2. Ative o GitHub Pages nas configurações do repositório.
+3. Acesse o link gerado!
 
-1. Clone o repositório.
-2. Abra o arquivo `index.html` em qualquer navegador moderno.
-3. Não é necessário servidor para rodar, o sistema funciona diretamente via módulos ESM.
+**Nota**: Todos os scripts (React, Tailwind, ícones) são carregados via CDN, então é necessária uma conexão com a internet para carregar a página inicialmente. Após carregada, ela funciona e salva dados localmente.
 
-## 💾 Backup
+## 🛠 Desenvolvimento
 
-Recomendamos utilizar a função de **Exportar JSON** na aba de Relatórios semanalmente para garantir a segurança dos seus dados caso limpe o cache do navegador.
+Não é mais necessário rodar `npm install` ou build tools.
+Basta abrir o `index.html` no seu navegador.
 
 ---
 *Desenvolvido para Delícias das Maria's*
