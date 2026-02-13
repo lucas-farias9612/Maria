@@ -1,16 +1,17 @@
 
 import React, { useMemo } from 'react';
 import { FinancialData } from '../types';
-import { formatCurrency, formatDateBR } from '../utils';
+import { formatCurrency, formatDateTimeBR } from '../utils';
 import { 
-  Download, 
-  Upload, 
+  FileText, 
   Trash, 
   Table as TableIcon, 
-  PieChart as PieIcon,
-  AlertTriangle
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 import { clearAllData } from '../services/storageService';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Props {
   data: FinancialData;
@@ -19,6 +20,8 @@ interface Props {
 }
 
 const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
+  const currentDateTime = formatDateTimeBR(new Date().toISOString());
+
   const monthlySummary = useMemo(() => {
     const summary: Record<string, { revenue: number, expense: number }> = {};
     
@@ -43,41 +46,118 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
       }));
   }, [data]);
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backup_delicias_das_marias_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showNotification('Backup exportado com sucesso!');
-  };
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    const currentDate = new Date();
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    // === PÁGINA 1: RESUMO MENSAL ===
+    
+    // Cabeçalho
+    doc.setFontSize(22);
+    doc.setTextColor(236, 72, 153); // Pink-500
+    doc.text("Delícias das Maria's", 14, 20);
+    
+    doc.setFontSize(14);
+    doc.setTextColor(100);
+    doc.text("Relatório Financeiro - Resumo", 14, 30);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text(`Gerado em: ${currentDate.toLocaleDateString('pt-BR')} às ${currentDate.toLocaleTimeString('pt-BR')}`, 14, 38);
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (imported.vendas && imported.despesas && imported.config) {
-          setData(imported);
-          showNotification('Dados importados com sucesso!');
-        } else {
-          showNotification('Arquivo inválido!', 'error');
+    // Dados da Tabela Resumo
+    const summaryTableData = monthlySummary.map(item => [
+      new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
+      formatCurrency(item.revenue),
+      formatCurrency(item.expense),
+      formatCurrency(item.profit)
+    ]);
+
+    const totalRevenue = monthlySummary.reduce((acc, curr) => acc + curr.revenue, 0);
+    const totalExpense = monthlySummary.reduce((acc, curr) => acc + curr.expense, 0);
+    const totalProfit = totalRevenue - totalExpense;
+
+    autoTable(doc, {
+      head: [['Mês', 'Receitas', 'Despesas', 'Lucro']],
+      body: summaryTableData,
+      startY: 45,
+      styles: { fontSize: 11, cellPadding: 5 },
+      headStyles: { fillColor: [236, 72, 153], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [253, 242, 248] },
+      columnStyles: {
+        0: { cellWidth: 'auto', fontStyle: 'bold' },
+        1: { halign: 'right', textColor: [16, 185, 129] },
+        2: { halign: 'right', textColor: [225, 29, 72] },
+        3: { halign: 'right', fontStyle: 'bold' }
+      },
+      foot: [['TOTAL GERAL', formatCurrency(totalRevenue), formatCurrency(totalExpense), formatCurrency(totalProfit)]],
+      footStyles: { fillColor: [241, 245, 249], textColor: 50, fontStyle: 'bold' }
+    });
+
+    // === PÁGINA 2: DETALHAMENTO COMPLETO ===
+    doc.addPage();
+    doc.setFontSize(16);
+    doc.setTextColor(100);
+    doc.text("Detalhamento de Movimentações", 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text("Lista completa de vendas e despesas por data e hora", 14, 26);
+
+    // Prepara dados detalhados
+    const allTransactions = [
+      ...data.vendas.map(v => ({
+        date: v.data,
+        desc: v.descricao,
+        cat: v.categoria,
+        type: 'Venda',
+        value: v.valorTotal
+      })),
+      ...data.despesas.map(d => ({
+        date: d.data,
+        desc: d.descricao,
+        cat: d.categoria,
+        type: 'Despesa',
+        value: d.valor
+      }))
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const detailsTableData = allTransactions.map(item => [
+      formatDateTimeBR(item.date),
+      item.desc,
+      item.cat,
+      item.type,
+      formatCurrency(item.value)
+    ]);
+
+    autoTable(doc, {
+      head: [['Data e Hora', 'Descrição', 'Categoria', 'Tipo', 'Valor']],
+      body: detailsTableData,
+      startY: 35,
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [71, 85, 105], textColor: 255, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 35 }, // Data
+        3: { fontStyle: 'bold' }, // Tipo
+        4: { halign: 'right' } // Valor
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 3) {
+            if (data.cell.raw === 'Venda') {
+                data.cell.styles.textColor = [16, 185, 129]; // Emerald
+            } else {
+                data.cell.styles.textColor = [225, 29, 72]; // Rose
+            }
         }
-      } catch (err) {
-        showNotification('Erro ao ler arquivo!', 'error');
       }
-    };
-    reader.readAsText(file);
+    });
+
+    doc.save(`relatorio_completo_${currentDate.toISOString().split('T')[0]}.pdf`);
+    showNotification('Relatório completo (PDF) gerado!');
   };
 
   const handleReset = () => {
-    if (confirm('ATENÇÃO: Isso apagará TODOS os dados permanentemente. Você tem um backup?')) {
-      if (confirm('TEM CERTEZA ABSOLUTA? Clique em OK para confirmar a exclusão total.')) {
+    if (confirm('ATENÇÃO: Isso apagará TODOS os dados do sistema permanentemente.')) {
+      if (confirm('Tem certeza? Essa ação não pode ser desfeita.')) {
         clearAllData();
         window.location.reload();
       }
@@ -86,17 +166,28 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold">Relatórios e Ferramentas</h2>
-        <p className="text-slate-500">Resumo histórico e utilitários do sistema.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Relatórios</h2>
+          <p className="text-slate-500">Visualize o desempenho e exporte os dados.</p>
+        </div>
+        <div className="text-right hidden sm:block">
+           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 rounded-full text-xs font-bold text-slate-500">
+             <Clock size={12} />
+             Atualizado: {currentDateTime}
+           </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Monthly Summary */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="p-6 border-b flex items-center gap-2">
-            <TableIcon className="text-indigo-500" size={20} />
-            <h4 className="font-bold">Resumo por Mês</h4>
+          <div className="p-6 border-b flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TableIcon className="text-pink-500" size={20} />
+              <h4 className="font-bold text-slate-700">Resumo por Mês</h4>
+            </div>
+            <span className="sm:hidden text-[10px] text-slate-400 font-medium">{currentDateTime}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -111,11 +202,11 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
               <tbody className="divide-y text-sm">
                 {monthlySummary.map(item => (
                   <tr key={item.month} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 font-bold capitalize">
+                    <td className="px-6 py-4 font-bold capitalize text-slate-700">
                       {new Date(item.month + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                     </td>
-                    <td className="px-6 py-4 text-emerald-600">{formatCurrency(item.revenue)}</td>
-                    <td className="px-6 py-4 text-rose-600">{formatCurrency(item.expense)}</td>
+                    <td className="px-6 py-4 text-emerald-600 font-medium">{formatCurrency(item.revenue)}</td>
+                    <td className="px-6 py-4 text-rose-600 font-medium">{formatCurrency(item.expense)}</td>
                     <td className={`px-6 py-4 text-right font-black ${item.profit >= 0 ? 'text-slate-700' : 'text-rose-600'}`}>
                       {formatCurrency(item.profit)}
                     </td>
@@ -123,7 +214,7 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
                 ))}
                 {monthlySummary.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">Sem histórico.</td>
+                    <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">Nenhum dado registrado ainda.</td>
                   </tr>
                 )}
               </tbody>
@@ -135,34 +226,27 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
             <h4 className="font-bold mb-4 flex items-center gap-2 text-slate-700">
-              <Download className="text-blue-500" size={20} />
-              Backup e Dados
+              <FileText className="text-pink-500" size={20} />
+              Relatório Completo
             </h4>
-            <div className="space-y-4">
-              <button 
-                onClick={handleExport}
-                className="w-full flex items-center justify-between px-4 py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Download size={18} />
-                  <div className="text-left">
-                    <p className="font-bold leading-none">Exportar JSON</p>
-                    <p className="text-xs opacity-70">Salvar backup do sistema</p>
-                  </div>
+            <p className="text-slate-500 text-sm mb-4">
+              Gere um PDF contendo o resumo mensal E a lista detalhada de todas as vendas e despesas com <strong>data e hora</strong>.
+            </p>
+            
+            <button 
+              onClick={handleExportPDF}
+              className="w-full flex items-center justify-between px-4 py-4 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl transition-all group active:scale-[0.98]"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-pink-100 p-2 rounded-lg text-pink-600 group-hover:bg-pink-200 transition-colors">
+                   <FileText size={20} />
                 </div>
-              </button>
-
-              <label className="w-full flex items-center justify-between px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-colors cursor-pointer">
-                <div className="flex items-center gap-3">
-                  <Upload size={18} />
-                  <div className="text-left">
-                    <p className="font-bold leading-none">Importar JSON</p>
-                    <p className="text-xs opacity-70">Restaurar dados de backup</p>
-                  </div>
+                <div className="text-left">
+                  <p className="font-bold leading-none text-slate-800">Baixar PDF Detalhado</p>
+                  <p className="text-xs text-slate-400 mt-1">Inclui data e hora de cada item</p>
                 </div>
-                <input type="file" accept=".json" className="hidden" onChange={handleImport} />
-              </label>
-            </div>
+              </div>
+            </button>
           </div>
 
           <div className="bg-rose-50 p-6 rounded-2xl shadow-sm border border-rose-100">
@@ -171,11 +255,11 @@ const ReportsView: React.FC<Props> = ({ data, setData, showNotification }) => {
               Zona de Perigo
             </h4>
             <p className="text-rose-600 text-sm mb-4">
-              A limpeza de dados removerá permanentemente todas as suas vendas e despesas do navegador.
+              Deseja recomeçar do zero? Esta ação irá apagar todas as vendas e despesas registradas.
             </p>
             <button 
               onClick={handleReset}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl transition-colors shadow-lg shadow-rose-600/20"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"
             >
               <Trash size={18} />
               Limpar Todos os Dados

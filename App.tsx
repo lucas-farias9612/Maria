@@ -1,16 +1,10 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   LayoutDashboard, 
   ShoppingBag, 
   Receipt, 
   BarChart3, 
-  Plus, 
-  Menu, 
-  X,
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
   AlertCircle
 } from 'lucide-react';
 import { FinancialData, Sale, Expense, AppView } from './types';
@@ -23,7 +17,6 @@ import ReportsView from './components/ReportsView';
 const App: React.FC = () => {
   const [data, setData] = useState<FinancialData>(() => getStoredData());
   const [currentView, setCurrentView] = useState<AppView>('dashboard');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   useEffect(() => {
@@ -35,9 +28,10 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // Funções CRUD simplificadas
   const addSale = (sale: Sale) => {
     setData(prev => ({ ...prev, vendas: [sale, ...prev.vendas] }));
-    showNotification('Venda cadastrada com sucesso!');
+    showNotification('Venda adicionada!');
   };
 
   const updateSale = (updatedSale: Sale) => {
@@ -50,12 +44,12 @@ const App: React.FC = () => {
 
   const deleteSale = (id: string) => {
     setData(prev => ({ ...prev, vendas: prev.vendas.filter(s => s.id !== id) }));
-    showNotification('Venda excluída!');
+    showNotification('Venda removida!');
   };
 
   const addExpense = (expense: Expense) => {
     setData(prev => ({ ...prev, despesas: [expense, ...prev.despesas] }));
-    showNotification('Despesa cadastrada!');
+    showNotification('Despesa adicionada!');
   };
 
   const updateExpense = (updatedExpense: Expense) => {
@@ -68,7 +62,7 @@ const App: React.FC = () => {
 
   const deleteExpense = (id: string) => {
     setData(prev => ({ ...prev, despesas: prev.despesas.filter(e => e.id !== id) }));
-    showNotification('Despesa excluída!');
+    showNotification('Despesa removida!');
   };
 
   const updateConfig = (meta: number) => {
@@ -76,115 +70,102 @@ const App: React.FC = () => {
     showNotification('Meta atualizada!');
   };
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'vendas', label: 'Vendas', icon: ShoppingBag },
-    { id: 'despesas', label: 'Despesas', icon: Receipt },
-    { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
-  ];
-
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50">
-      {/* Mobile Header */}
-      <div className="md:hidden flex items-center justify-between p-4 bg-white border-b shadow-sm sticky top-0 z-50">
+    <div className="flex flex-col h-full max-w-md mx-auto bg-slate-50 md:max-w-full md:border-x md:border-slate-200">
+      
+      {/* Header Mobile Fixo */}
+      <header className="bg-white px-4 py-3 border-b shadow-sm sticky top-0 z-30 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
-          <div className="bg-pink-500 p-2 rounded-lg">
+          <div className="bg-pink-500 p-1.5 rounded-lg">
             <ShoppingBag className="w-5 h-5 text-white" />
           </div>
-          <span className="font-bold text-lg">Delícias das Maria's</span>
+          <h1 className="font-bold text-lg text-slate-800">Delícias das Maria's</h1>
         </div>
-        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-          {isSidebarOpen ? <X /> : <Menu />}
-        </button>
-      </div>
+      </header>
 
-      {/* Sidebar */}
-      <aside className={`
-        fixed inset-0 z-40 bg-slate-900 text-white w-64 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="flex flex-col h-full">
-          <div className="p-6 border-b border-slate-800 hidden md:flex items-center gap-3">
-            <div className="bg-pink-500 p-2 rounded-xl shadow-lg shadow-pink-500/20 shrink-0">
-              <ShoppingBag className="w-6 h-6 text-white" />
-            </div>
-            <div className="overflow-hidden">
-              <h1 className="font-bold text-lg leading-tight">Delícias das Maria's</h1>
-              <p className="text-slate-400 text-xs mt-0.5">Confeitaria Artística</p>
-            </div>
-          </div>
-
-          <nav className="flex-1 p-4 space-y-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setCurrentView(item.id as AppView);
-                    setIsSidebarOpen(false);
-                  }}
-                  className={`
-                    w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors
-                    ${currentView === item.id ? 'bg-pink-500 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}
-                  `}
-                >
-                  <Icon size={20} />
-                  <span className="font-medium">{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-4 border-t border-slate-800">
-            <div className="bg-slate-800/50 p-4 rounded-xl">
-              <p className="text-xs text-slate-400 uppercase tracking-wider mb-2">Meta Mensal</p>
-              <div className="flex items-end justify-between">
-                <span className="text-lg font-bold">R$ {data.config.metaLucroMensal.toLocaleString()}</span>
-                <TrendingUp className="text-emerald-400 w-4 h-4" />
-              </div>
-            </div>
-          </div>
+      {/* Notificação Flutuante */}
+      {notification && (
+        <div className={`fixed top-16 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce
+          ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+          {notification.message}
         </div>
-      </aside>
+      )}
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto p-4 md:p-8">
-          {notification && (
-            <div className={`fixed top-4 right-4 z-[60] flex items-center gap-2 px-6 py-3 rounded-xl shadow-2xl animate-bounce 
-              ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
-              <AlertCircle size={20} />
-              <span className="font-medium">{notification.message}</span>
-            </div>
-          )}
-
-          {currentView === 'dashboard' && (
-            <Dashboard data={data} updateConfig={updateConfig} />
-          )}
-          {currentView === 'vendas' && (
-            <SalesView 
-              vendas={data.vendas} 
-              onAdd={addSale} 
-              onUpdate={updateSale} 
-              onDelete={deleteSale} 
-            />
-          )}
-          {currentView === 'despesas' && (
-            <ExpensesView 
-              despesas={data.despesas} 
-              onAdd={addExpense} 
-              onUpdate={updateExpense} 
-              onDelete={deleteExpense} 
-            />
-          )}
-          {currentView === 'relatorios' && (
-            <ReportsView data={data} setData={setData} showNotification={showNotification} />
-          )}
-        </div>
+      {/* Conteúdo Principal com Scroll */}
+      <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 scroll-smooth">
+        {currentView === 'dashboard' && (
+          <Dashboard data={data} updateConfig={updateConfig} />
+        )}
+        {currentView === 'vendas' && (
+          <SalesView 
+            vendas={data.vendas} 
+            onAdd={addSale} 
+            onUpdate={updateSale} 
+            onDelete={deleteSale} 
+          />
+        )}
+        {currentView === 'despesas' && (
+          <ExpensesView 
+            despesas={data.despesas} 
+            onAdd={addExpense} 
+            onUpdate={updateExpense} 
+            onDelete={deleteExpense} 
+          />
+        )}
+        {currentView === 'relatorios' && (
+          <ReportsView data={data} setData={setData} showNotification={showNotification} />
+        )}
       </main>
+
+      {/* Navegação Inferior (App Style) */}
+      <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-md md:max-w-full pb-safe z-40">
+        <ul className="flex justify-around items-center h-16">
+          <NavItem 
+            id="dashboard" 
+            icon={LayoutDashboard} 
+            label="Início" 
+            isActive={currentView === 'dashboard'} 
+            onClick={() => setCurrentView('dashboard')} 
+          />
+          <NavItem 
+            id="vendas" 
+            icon={ShoppingBag} 
+            label="Vendas" 
+            isActive={currentView === 'vendas'} 
+            onClick={() => setCurrentView('vendas')} 
+          />
+          <NavItem 
+            id="despesas" 
+            icon={Receipt} 
+            label="Despesas" 
+            isActive={currentView === 'despesas'} 
+            onClick={() => setCurrentView('despesas')} 
+          />
+          <NavItem 
+            id="relatorios" 
+            icon={BarChart3} 
+            label="Relatórios" 
+            isActive={currentView === 'relatorios'} 
+            onClick={() => setCurrentView('relatorios')} 
+          />
+        </ul>
+      </nav>
     </div>
   );
 };
+
+// Componente Helper para Item de Navegação
+const NavItem = ({ id, icon: Icon, label, isActive, onClick }: any) => (
+  <li className="flex-1">
+    <button 
+      onClick={onClick}
+      className={`w-full flex flex-col items-center justify-center h-full gap-1 pt-1
+        ${isActive ? 'text-pink-500' : 'text-slate-400 hover:text-slate-600'}`}
+    >
+      <Icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+      <span className="text-[10px] font-medium">{label}</span>
+    </button>
+  </li>
+);
 
 export default App;

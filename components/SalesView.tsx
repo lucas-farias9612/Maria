@@ -1,19 +1,9 @@
 
 import React, { useState } from 'react';
 import { Sale, CategorySale, PaymentMethod } from '../types';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Trash2, 
-  Edit2, 
-  X,
-  ShoppingBag,
-  Calendar,
-  MessageSquare
-} from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, X } from 'lucide-react';
 import { SALE_CATEGORIES, PAYMENT_METHODS } from '../constants';
-import { formatCurrency, formatDateBR, generateId } from '../utils';
+import { formatCurrency, formatDateTimeBR, generateId, parseBRLToNumber, getCurrentDateTimeLocal } from '../utils';
 
 interface Props {
   vendas: Sale[];
@@ -27,15 +17,22 @@ const SalesView: React.FC<Props> = ({ vendas, onAdd, onUpdate, onDelete }) => {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [displayValue, setDisplayValue] = useState('');
 
   const [formData, setFormData] = useState<Partial<Sale>>({
-    data: new Date().toISOString().split('T')[0],
+    data: getCurrentDateTimeLocal(),
     descricao: '',
     categoria: 'Bolo',
     quantidade: 1,
     valorTotal: 0,
     formaPagamento: 'Pix',
     observacao: ''
+  });
+
+  const filteredVendas = vendas.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).filter(v => {
+    const matchesSearch = v.descricao.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = filterCategory === 'all' || v.categoria === filterCategory;
+    return matchesSearch && matchesCategory;
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -53,8 +50,9 @@ const SalesView: React.FC<Props> = ({ vendas, onAdd, onUpdate, onDelete }) => {
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingSale(null);
+    setDisplayValue('');
     setFormData({
-      data: new Date().toISOString().split('T')[0],
+      data: getCurrentDateTimeLocal(),
       descricao: '',
       categoria: 'Bolo',
       quantidade: 1,
@@ -64,219 +62,183 @@ const SalesView: React.FC<Props> = ({ vendas, onAdd, onUpdate, onDelete }) => {
     });
   };
 
-  const handleEdit = (sale: Sale) => {
+  const openEdit = (sale: Sale) => {
     setEditingSale(sale);
     setFormData(sale);
+    setDisplayValue(sale.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
     setIsModalOpen(true);
   };
 
-  const filteredVendas = vendas.filter(v => {
-    const matchesSearch = v.descricao.toLowerCase().includes(search.toLowerCase());
-    const matchesCategory = filterCategory === 'all' || v.categoria === filterCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setDisplayValue(value);
+    setFormData(prev => ({ ...prev, valorTotal: parseBRLToNumber(value) }));
+  };
+
+  const handleDelete = (id: string) => {
+    // Adiciona um confirm mais robusto
+    if (window.confirm('Tem certeza que deseja excluir esta venda?')) {
+      onDelete(id);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <ShoppingBag className="text-pink-500" />
-            Minhas Vendas
-          </h2>
-          <p className="text-slate-500">Gerencie todos os pedidos e saídas da confeitaria.</p>
-        </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-pink-500 hover:bg-pink-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-pink-500/20 flex items-center gap-2 transition-all active:scale-95"
-        >
-          <Plus size={20} />
-          Lançar Venda
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Buscar por descrição..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <select 
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-pink-500 appearance-none"
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
+    <section className="space-y-4">
+      {/* Search & Filter Bar */}
+      <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar venda..."
+              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-pink-500 text-sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-pink-500 text-white p-3 rounded-xl shadow-md shadow-pink-200 active:scale-95 transition-transform"
           >
-            <option value="all">Todas as Categorias</option>
-            {SALE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+            <Plus size={24} />
+          </button>
+        </div>
+        
+        {/* Chips Filtros */}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          <button 
+             onClick={() => setFilterCategory('all')}
+             className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors
+             ${filterCategory === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
+          >
+            Todos
+          </button>
+          {SALE_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setFilterCategory(cat)}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors
+              ${filterCategory === cat ? 'bg-pink-500 text-white border-pink-500' : 'bg-white text-slate-600 border-slate-200'}`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* List */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-              <tr>
-                <th className="px-6 py-4">Data</th>
-                <th className="px-6 py-4">Descrição</th>
-                <th className="px-6 py-4">Categoria</th>
-                <th className="px-6 py-4">Pagamento</th>
-                <th className="px-6 py-4">Valor</th>
-                <th className="px-6 py-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filteredVendas.map(venda => (
-                <tr key={venda.id} className="hover:bg-slate-50 transition-colors group">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{formatDateBR(venda.data)}</td>
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-slate-800">{venda.descricao}</div>
-                    {venda.observacao && <div className="text-xs text-slate-400 truncate max-w-xs">{venda.observacao}</div>}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-pink-100 text-pink-800">
-                      {venda.categoria}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{venda.formaPagamento}</td>
-                  <td className="px-6 py-4 font-bold text-slate-900">{formatCurrency(venda.valorTotal)}</td>
-                  <td className="px-6 py-4 text-right space-x-2">
-                    <button onClick={() => handleEdit(venda)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
-                      <Edit2 size={18} />
-                    </button>
-                    <button 
-                      onClick={() => { if(confirm('Excluir venda?')) onDelete(venda.id) }} 
-                      className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredVendas.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
-                    Nenhuma venda encontrada.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Lista de Cards (HTML Semântico) */}
+      <div className="space-y-3">
+        {filteredVendas.length === 0 ? (
+          <div className="text-center py-10 text-slate-400">
+            <p>Nenhuma venda encontrada.</p>
+          </div>
+        ) : (
+          filteredVendas.map((venda) => (
+            <article key={venda.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-start">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs text-slate-400 font-medium">{formatDateTimeBR(venda.data)}</span>
+                  <span className="px-2 py-0.5 rounded-md bg-pink-50 text-pink-700 text-[10px] font-bold uppercase tracking-wide">
+                    {venda.categoria}
+                  </span>
+                </div>
+                <h3 className="font-bold text-slate-800 text-base">{venda.descricao}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{venda.quantidade}x • {venda.formaPagamento}</p>
+                {venda.observacao && <p className="text-xs text-slate-400 mt-2 italic bg-slate-50 p-1.5 rounded">"{venda.observacao}"</p>}
+              </div>
+              
+              <div className="flex flex-col items-end gap-3 ml-2">
+                <span className="font-bold text-lg text-slate-900">{formatCurrency(venda.valorTotal)}</span>
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(venda)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg">
+                    <Edit2 size={16} />
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleDelete(venda.id); }} 
+                    className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-lg"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
       </div>
 
-      {/* Modal */}
+      {/* Modal/Bottom Sheet */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50">
-              <h3 className="font-bold text-xl">{editingSale ? 'Editar Venda' : 'Nova Venda'}</h3>
-              <button onClick={closeModal} className="p-2 hover:bg-white rounded-lg transition-colors"><X size={20}/></button>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl animate-in slide-in-from-bottom-10 duration-200">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-bold text-lg">{editingSale ? 'Editar Venda' : 'Nova Venda'}</h2>
+              <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Data *</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="date" 
-                      required
-                      className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                      value={formData.data}
-                      onChange={(e) => setFormData({...formData, data: e.target.value})}
-                    />
-                  </div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Data e Hora</label>
+                  <input type="datetime-local" required className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500"
+                    value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Categoria</label>
-                  <select 
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                    value={formData.categoria}
-                    onChange={(e) => setFormData({...formData, categoria: e.target.value as CategorySale})}
-                  >
+                  <label className="text-xs font-bold text-slate-500 uppercase">Valor Total (R$)</label>
+                  <input 
+                    type="text" 
+                    inputMode="decimal"
+                    required 
+                    placeholder="0,00" 
+                    className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500 font-bold text-lg"
+                    value={displayValue} 
+                    onChange={handleValueChange} 
+                  />
+                  {formData.valorTotal !== undefined && formData.valorTotal > 0 && (
+                     <p className="text-[10px] text-slate-400 text-right px-1">
+                       Confirmado: {formatCurrency(formData.valorTotal)}
+                     </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase">Descrição</label>
+                <input type="text" required placeholder="O que foi vendido?" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500"
+                  value={formData.descricao} onChange={e => setFormData({...formData, descricao: e.target.value})} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Categoria</label>
+                  <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500"
+                    value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value as CategorySale})}>
                     {SALE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Pagamento</label>
+                  <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500"
+                    value={formData.formaPagamento} onChange={e => setFormData({...formData, formaPagamento: e.target.value as PaymentMethod})}>
+                    {PAYMENT_METHODS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-600">Descrição *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Ex: Bolo de Chocolate 2kg"
-                  className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})}
-                />
+                <label className="text-xs font-bold text-slate-500 uppercase">Observação</label>
+                <textarea rows={2} className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-pink-500"
+                  value={formData.observacao} onChange={e => setFormData({...formData, observacao: e.target.value})}></textarea>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Quantidade</label>
-                  <input 
-                    type="number" 
-                    min="1"
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                    value={formData.quantidade}
-                    onChange={(e) => setFormData({...formData, quantidade: parseInt(e.target.value)})}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Valor Total (R$) *</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    required
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500 font-bold"
-                    value={formData.valorTotal}
-                    onChange={(e) => setFormData({...formData, valorTotal: parseFloat(e.target.value)})}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-600">Forma de Pagamento</label>
-                <select 
-                  className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500"
-                  value={formData.formaPagamento}
-                  onChange={(e) => setFormData({...formData, formaPagamento: e.target.value as PaymentMethod})}
-                >
-                  {PAYMENT_METHODS.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-600">Observações (opcional)</label>
-                <textarea 
-                  className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-pink-500 min-h-[80px]"
-                  value={formData.observacao}
-                  onChange={(e) => setFormData({...formData, observacao: e.target.value})}
-                />
-              </div>
-
-              <button 
-                type="submit"
-                className="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-3 rounded-xl shadow-lg transition-all"
-              >
+              <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform mt-2">
                 {editingSale ? 'Salvar Alterações' : 'Confirmar Venda'}
               </button>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

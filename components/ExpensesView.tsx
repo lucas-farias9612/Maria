@@ -1,18 +1,9 @@
 
 import React, { useState } from 'react';
 import { Expense, CategoryExpense, ExpenseType } from '../types';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  Trash2, 
-  Edit2, 
-  X,
-  Receipt,
-  Calendar
-} from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, X } from 'lucide-react';
 import { EXPENSE_CATEGORIES, EXPENSE_TYPES } from '../constants';
-import { formatCurrency, formatDateBR, generateId } from '../utils';
+import { formatCurrency, formatDateTimeBR, generateId, parseBRLToNumber, getCurrentDateTimeLocal } from '../utils';
 
 interface Props {
   despesas: Expense[];
@@ -26,14 +17,21 @@ const ExpensesView: React.FC<Props> = ({ despesas, onAdd, onUpdate, onDelete }) 
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [displayValue, setDisplayValue] = useState('');
 
   const [formData, setFormData] = useState<Partial<Expense>>({
-    data: new Date().toISOString().split('T')[0],
+    data: getCurrentDateTimeLocal(),
     descricao: '',
     categoria: 'Ingredientes',
     valor: 0,
     tipo: 'Variável',
     observacao: ''
+  });
+
+  const filteredDespesas = despesas.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).filter(e => {
+    const matchesSearch = e.descricao.toLowerCase().includes(search.toLowerCase());
+    const matchesCategory = filterCategory === 'all' || e.categoria === filterCategory;
+    return matchesSearch && matchesCategory;
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -51,8 +49,9 @@ const ExpensesView: React.FC<Props> = ({ despesas, onAdd, onUpdate, onDelete }) 
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingExpense(null);
+    setDisplayValue('');
     setFormData({
-      data: new Date().toISOString().split('T')[0],
+      data: getCurrentDateTimeLocal(),
       descricao: '',
       categoria: 'Ingredientes',
       valor: 0,
@@ -61,204 +60,174 @@ const ExpensesView: React.FC<Props> = ({ despesas, onAdd, onUpdate, onDelete }) 
     });
   };
 
-  const handleEdit = (expense: Expense) => {
+  const openEdit = (expense: Expense) => {
     setEditingExpense(expense);
     setFormData(expense);
+    setDisplayValue(expense.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }));
     setIsModalOpen(true);
   };
 
-  const filteredDespesas = despesas.filter(e => {
-    const matchesSearch = e.descricao.toLowerCase().includes(search.toLowerCase());
-    const matchesCategory = filterCategory === 'all' || e.categoria === filterCategory;
-    return matchesSearch && matchesCategory;
-  });
+  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setDisplayValue(value);
+    setFormData(prev => ({ ...prev, valor: parseBRLToNumber(value) }));
+  };
+
+  const handleDelete = (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir esta despesa?')) {
+      onDelete(id);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Receipt className="text-rose-500" />
-            Minhas Despesas
-          </h2>
-          <p className="text-slate-500">Controle todos os gastos e custos da sua produção.</p>
-        </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="bg-rose-500 hover:bg-rose-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-rose-500/20 flex items-center gap-2 transition-all active:scale-95"
-        >
-          <Plus size={20} />
-          Lançar Despesa
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <input 
-            type="text" 
-            placeholder="Buscar por descrição..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-          <select 
-            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-rose-500 appearance-none"
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
+    <section className="space-y-4">
+      {/* Search Bar */}
+      <div className="sticky top-0 bg-slate-50 pt-2 pb-4 z-10 space-y-3">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Buscar despesa..."
+              className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-rose-500 text-sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="bg-rose-500 text-white p-3 rounded-xl shadow-md shadow-rose-200 active:scale-95 transition-transform"
           >
-            <option value="all">Todas as Categorias</option>
-            {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+            <Plus size={24} />
+          </button>
+        </div>
+
+         <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          <button 
+             onClick={() => setFilterCategory('all')}
+             className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors
+             ${filterCategory === 'all' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}
+          >
+            Todas
+          </button>
+          {EXPENSE_CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setFilterCategory(cat)}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border transition-colors
+              ${filterCategory === cat ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-600 border-slate-200'}`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-              <tr>
-                <th className="px-6 py-4">Data</th>
-                <th className="px-6 py-4">Descrição</th>
-                <th className="px-6 py-4">Categoria</th>
-                <th className="px-6 py-4">Tipo</th>
-                <th className="px-6 py-4">Valor</th>
-                <th className="px-6 py-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filteredDespesas.map(expense => (
-                <tr key={expense.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{formatDateBR(expense.data)}</td>
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-slate-800">{expense.descricao}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-800">
-                      {expense.categoria}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{expense.tipo}</td>
-                  <td className="px-6 py-4 font-bold text-rose-600">{formatCurrency(expense.valor)}</td>
-                  <td className="px-6 py-4 text-right space-x-2">
-                    <button onClick={() => handleEdit(expense)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors">
-                      <Edit2 size={18} />
-                    </button>
-                    <button 
-                      onClick={() => { if(confirm('Excluir despesa?')) onDelete(expense.id) }} 
-                      className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {filteredDespesas.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
-                    Nenhuma despesa encontrada.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      {/* Lista Cards */}
+      <div className="space-y-3">
+        {filteredDespesas.length === 0 ? (
+          <div className="text-center py-10 text-slate-400">
+            <p>Nenhuma despesa encontrada.</p>
+          </div>
+        ) : (
+          filteredDespesas.map((expense) => (
+            <article key={expense.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-start border-l-4 border-l-rose-400">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs text-slate-400 font-medium">{formatDateTimeBR(expense.data)}</span>
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-bold uppercase">
+                    {expense.tipo}
+                  </span>
+                </div>
+                <h3 className="font-bold text-slate-800 text-base">{expense.descricao}</h3>
+                <p className="text-xs text-rose-500 font-medium mt-0.5">{expense.categoria}</p>
+              </div>
+              
+              <div className="flex flex-col items-end gap-3 ml-2">
+                <span className="font-bold text-lg text-rose-600">{formatCurrency(expense.valor)}</span>
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(expense)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-lg">
+                    <Edit2 size={16} />
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleDelete(expense.id); }} 
+                    className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-lg"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
       </div>
 
+      {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50">
-              <h3 className="font-bold text-xl">{editingExpense ? 'Editar Despesa' : 'Nova Despesa'}</h3>
-              <button onClick={closeModal} className="p-2 hover:bg-white rounded-lg transition-colors"><X size={20}/></button>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl animate-in slide-in-from-bottom-10 duration-200">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-bold text-lg">{editingExpense ? 'Editar Despesa' : 'Nova Despesa'}</h2>
+              <button onClick={closeModal} className="p-2 bg-slate-100 rounded-full"><X size={20} /></button>
             </div>
             
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Data *</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input 
-                      type="date" 
-                      required
-                      className="w-full pl-10 pr-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500"
-                      value={formData.data}
-                      onChange={(e) => setFormData({...formData, data: e.target.value})}
-                    />
-                  </div>
+                  <label className="text-xs font-bold text-slate-500 uppercase">Data e Hora</label>
+                  <input type="datetime-local" required className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500"
+                    value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Categoria</label>
-                  <select 
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500"
-                    value={formData.categoria}
-                    onChange={(e) => setFormData({...formData, categoria: e.target.value as CategoryExpense})}
-                  >
+                  <label className="text-xs font-bold text-slate-500 uppercase">Valor (R$)</label>
+                  <input 
+                    type="text"
+                    inputMode="decimal"
+                    required 
+                    placeholder="0,00" 
+                    className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500 font-bold text-lg"
+                    value={displayValue} 
+                    onChange={handleValueChange} 
+                  />
+                  {formData.valor !== undefined && formData.valor > 0 && (
+                     <p className="text-[10px] text-slate-400 text-right px-1">
+                       Confirmado: {formatCurrency(formData.valor)}
+                     </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase">Descrição</label>
+                <input type="text" required placeholder="Gasto com o quê?" className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500"
+                  value={formData.descricao} onChange={e => setFormData({...formData, descricao: e.target.value})} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Categoria</label>
+                  <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500"
+                    value={formData.categoria} onChange={e => setFormData({...formData, categoria: e.target.value as CategoryExpense})}>
                     {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-600">Descrição *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="Ex: Compra de farinha 10kg"
-                  className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500"
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Tipo</label>
-                  <select 
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500"
-                    value={formData.tipo}
-                    onChange={(e) => setFormData({...formData, tipo: e.target.value as ExpenseType})}
-                  >
+                  <label className="text-xs font-bold text-slate-500 uppercase">Tipo</label>
+                  <select className="w-full p-3 bg-slate-50 rounded-xl border-0 focus:ring-2 focus:ring-rose-500"
+                    value={formData.tipo} onChange={e => setFormData({...formData, tipo: e.target.value as ExpenseType})}>
                     {EXPENSE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-bold text-slate-600">Valor (R$) *</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    required
-                    className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500 font-bold"
-                    value={formData.valor}
-                    onChange={(e) => setFormData({...formData, valor: parseFloat(e.target.value)})}
-                  />
-                </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-slate-600">Observações (opcional)</label>
-                <textarea 
-                  className="w-full px-4 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-rose-500 min-h-[80px]"
-                  value={formData.observacao}
-                  onChange={(e) => setFormData({...formData, observacao: e.target.value})}
-                />
-              </div>
-
-              <button 
-                type="submit"
-                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl shadow-lg transition-all"
-              >
+              <button type="submit" className="w-full bg-rose-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform mt-2">
                 {editingExpense ? 'Salvar Alterações' : 'Confirmar Despesa'}
               </button>
             </form>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 };
 

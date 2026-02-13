@@ -8,8 +8,20 @@ export const formatCurrency = (value: number): string => {
 
 export const formatDateBR = (dateStr: string): string => {
   if (!dateStr) return '';
-  const [year, month, day] = dateStr.split('-');
-  return `${day}/${month}/${year}`;
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('pt-BR');
+};
+
+export const formatDateTimeBR = (dateStr: string): string => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
 export const getCurrentMonthYear = () => {
@@ -17,6 +29,12 @@ export const getCurrentMonthYear = () => {
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const year = now.getFullYear();
   return `${year}-${month}`;
+};
+
+export const getCurrentDateTimeLocal = () => {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().slice(0, 16);
 };
 
 export const generateId = (): string => {

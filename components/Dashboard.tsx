@@ -1,30 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Legend,
-  AreaChart,
-  Area
-} from 'recharts';
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { FinancialData } from '../types';
-import { formatCurrency, getCurrentMonthYear } from '../utils';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  DollarSign, 
-  Target, 
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Calculator,
-  BarChart3
-} from 'lucide-react';
+import { formatCurrency, getCurrentMonthYear, formatDateTimeBR } from '../utils';
+import { TrendingUp, TrendingDown, ChevronLeft, ChevronRight, Edit3, Clock } from 'lucide-react';
 
 interface Props {
   data: FinancialData;
@@ -36,7 +15,6 @@ const Dashboard: React.FC<Props> = ({ data, updateConfig }) => {
   const [showGoalEditor, setShowGoalEditor] = useState(false);
   const [tempGoal, setTempGoal] = useState(data.config.metaLucroMensal.toString());
 
-  // Filter data for the selected month
   const monthData = useMemo(() => {
     const [year, month] = selectedMonth.split('-');
     const sales = data.vendas.filter(s => s.data.startsWith(selectedMonth));
@@ -49,243 +27,155 @@ const Dashboard: React.FC<Props> = ({ data, updateConfig }) => {
     return { sales, expenses, revenue, cost, profit };
   }, [data, selectedMonth]);
 
-  // Daily statistics for charts
   const dailyData = useMemo(() => {
-    const daysInMonth = new Date(
-      parseInt(selectedMonth.split('-')[0]),
-      parseInt(selectedMonth.split('-')[1]),
-      0
-    ).getDate();
-
+    const daysInMonth = new Date(parseInt(selectedMonth.split('-')[0]), parseInt(selectedMonth.split('-')[1]), 0).getDate();
     const chartData = [];
     for (let i = 1; i <= daysInMonth; i++) {
       const dayStr = `${selectedMonth}-${String(i).padStart(2, '0')}`;
-      const daySales = monthData.sales.filter(s => s.data === dayStr).reduce((acc, s) => acc + s.valorTotal, 0);
-      const dayExpenses = monthData.expenses.filter(e => e.data === dayStr).reduce((acc, e) => acc + e.valor, 0);
-      chartData.push({
-        day: i,
-        Receita: daySales,
-        Despesa: dayExpenses,
-        Lucro: daySales - dayExpenses
-      });
+      const daySales = monthData.sales.filter(s => s.data.startsWith(dayStr)).reduce((acc, s) => acc + s.valorTotal, 0);
+      const dayExpenses = monthData.expenses.filter(e => e.data.startsWith(dayStr)).reduce((acc, e) => acc + e.valor, 0);
+      chartData.push({ day: i, profit: daySales - dayExpenses });
     }
     return chartData;
   }, [monthData, selectedMonth]);
 
-  // Derived metrics
-  const daysInCurrentMonth = dailyData.length;
-  const daysWithMovement = dailyData.filter(d => d.Receita > 0 || d.Despesa > 0).length;
-  const profitPerMovementDay = daysWithMovement > 0 ? monthData.profit / daysWithMovement : 0;
-  const profitPerTotalDay = monthData.profit / daysInCurrentMonth;
+  const recentTransactions = useMemo(() => {
+    // Junta vendas e despesas do mês selecionado
+    const all = [
+      ...monthData.sales.map(s => ({ ...s, type: 'sale', value: s.valorTotal })),
+      ...monthData.expenses.map(e => ({ ...e, type: 'expense', value: e.valor }))
+    ];
+    // Ordena por data (mais recente primeiro) e pega os 5
+    return all.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).slice(0, 5);
+  }, [monthData]);
 
   const goalProgress = (monthData.profit / data.config.metaLucroMensal) * 100;
 
   const changeMonth = (offset: number) => {
     const [y, m] = selectedMonth.split('-').map(Number);
     const date = new Date(y, m - 1 + offset, 1);
-    const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    setSelectedMonth(newMonth);
-  };
-
-  const handleUpdateGoal = () => {
-    const val = parseFloat(tempGoal);
-    if (!isNaN(val)) {
-      updateConfig(val);
-      setShowGoalEditor(false);
-    }
+    setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">Painel de Controle</h2>
-          <p className="text-slate-500">Acompanhe o desempenho da sua confeitaria.</p>
-        </div>
+      {/* Month Selector */}
+      <div className="flex items-center justify-between bg-white p-2 rounded-xl shadow-sm border border-slate-100">
+        <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ChevronLeft /></button>
+        <span className="font-bold text-lg text-slate-700 capitalize">
+          {new Date(selectedMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+        </span>
+        <button onClick={() => changeMonth(1)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"><ChevronRight /></button>
+      </div>
+
+      {/* Main Stats */}
+      <div className="grid grid-cols-2 gap-3">
+        <article className="bg-emerald-500 text-white p-4 rounded-2xl shadow-lg shadow-emerald-500/20">
+          <div className="flex items-center gap-2 mb-1 opacity-90">
+            <TrendingUp size={16} />
+            <span className="text-xs font-bold uppercase">Entradas</span>
+          </div>
+          <p className="text-xl font-bold truncate">{formatCurrency(monthData.revenue)}</p>
+        </article>
         
-        <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-sm border">
-          <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronLeft size={20}/></button>
-          <div className="flex items-center gap-2 px-4 font-semibold text-slate-700 min-w-[140px] justify-center">
-            <Calendar size={18} className="text-pink-500" />
-            {new Date(selectedMonth + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+        <article className="bg-rose-500 text-white p-4 rounded-2xl shadow-lg shadow-rose-500/20">
+          <div className="flex items-center gap-2 mb-1 opacity-90">
+            <TrendingDown size={16} />
+            <span className="text-xs font-bold uppercase">Saídas</span>
           </div>
-          <button onClick={() => changeMonth(1)} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronRight size={20}/></button>
-        </div>
+          <p className="text-xl font-bold truncate">{formatCurrency(monthData.cost)}</p>
+        </article>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-pink-200 transition-colors">
-          <div className="flex items-center justify-between mb-4">
-            <div className="bg-emerald-100 p-3 rounded-xl text-emerald-600">
-              <TrendingUp size={24} />
-            </div>
-          </div>
-          <p className="text-slate-500 text-sm font-medium">Receita Mensal</p>
-          <h3 className="text-2xl font-bold mt-1">{formatCurrency(monthData.revenue)}</h3>
+      {/* Net Profit Big Card */}
+      <article className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-center">
+        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Lucro Líquido</p>
+        <h2 className={`text-4xl font-black ${monthData.profit >= 0 ? 'text-slate-800' : 'text-rose-500'}`}>
+          {formatCurrency(monthData.profit)}
+        </h2>
+        {monthData.revenue > 0 && (
+          <span className="inline-block mt-2 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-bold">
+            Margem: {((monthData.profit / monthData.revenue) * 100).toFixed(0)}%
+          </span>
+        )}
+      </article>
+
+      {/* Goal */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="font-bold text-slate-700 text-sm">Meta Mensal</h3>
+          <button onClick={() => setShowGoalEditor(!showGoalEditor)} className="text-pink-500">
+             <Edit3 size={16} />
+          </button>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-pink-200 transition-colors">
-          <div className="flex items-center justify-between mb-4">
-            <div className="bg-rose-100 p-3 rounded-xl text-rose-600">
-              <TrendingDown size={24} />
-            </div>
+        {showGoalEditor ? (
+          <div className="flex gap-2 mb-4">
+            <input type="number" value={tempGoal} onChange={e => setTempGoal(e.target.value)} className="w-full p-2 border rounded-lg bg-slate-50" />
+            <button onClick={() => { updateConfig(parseFloat(tempGoal)); setShowGoalEditor(false); }} className="bg-pink-500 text-white px-4 rounded-lg font-bold">OK</button>
           </div>
-          <p className="text-slate-500 text-sm font-medium">Despesa Mensal</p>
-          <h3 className="text-2xl font-bold mt-1">{formatCurrency(monthData.cost)}</h3>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-pink-200 transition-colors">
-          <div className="flex items-center justify-between mb-4">
-            <div className={`p-3 rounded-xl ${monthData.profit >= 0 ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
-              <DollarSign size={24} />
-            </div>
-            {monthData.revenue > 0 && (
-               <span className="text-xs font-bold px-2 py-1 rounded-full bg-slate-100">
-                {((monthData.profit / monthData.revenue) * 100).toFixed(1)}% Margem
-               </span>
-            )}
+        ) : (
+          <div className="relative pt-1">
+             <div className="flex items-end justify-between mb-2">
+                <span className="text-xs font-bold text-slate-400">{Math.max(0, goalProgress).toFixed(0)}%</span>
+                <span className="text-xs font-bold text-slate-400">{formatCurrency(data.config.metaLucroMensal)}</span>
+             </div>
+             <div className="overflow-hidden h-3 text-xs flex rounded-full bg-slate-100">
+               <div style={{ width: `${Math.min(100, Math.max(0, goalProgress))}%` }} 
+                 className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-pink-500 transition-all duration-1000"></div>
+             </div>
           </div>
-          <p className="text-slate-500 text-sm font-medium">Lucro Líquido</p>
-          <h3 className={`text-2xl font-bold mt-1 ${monthData.profit < 0 ? 'text-rose-500' : 'text-slate-900'}`}>
-            {formatCurrency(monthData.profit)}
-          </h3>
-        </div>
+        )}
       </div>
 
-      {/* Goal and Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-          <div className="flex items-center justify-between mb-6">
-            <h4 className="font-bold text-slate-700 flex items-center gap-2">
-              <BarChart3 size={18} className="text-pink-500" />
-              Desempenho Diário
-            </h4>
-          </div>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyData}>
-                <defs>
-                  <linearGradient id="colorLucro" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ec4899" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#ec4899" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} tickFormatter={(v) => `R$${v}`} />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
-                  formatter={(value: any) => [formatCurrency(value), '']}
-                />
-                <Legend />
-                <Area type="monotone" dataKey="Lucro" stroke="#ec4899" strokeWidth={3} fillOpacity={1} fill="url(#colorLucro)" />
-                <Bar dataKey="Receita" fill="#10b981" radius={[4, 4, 0, 0]} opacity={0.6} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+      {/* Mini Chart */}
+      <div className="h-32 w-full bg-white rounded-2xl shadow-sm border border-slate-100 p-2 pt-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={dailyData}>
+            <defs>
+              <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#ec4899" stopOpacity={0.1}/>
+                <stop offset="95%" stopColor="#ec4899" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <Tooltip 
+              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              itemStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#ec4899' }}
+              labelStyle={{ display: 'none' }}
+              formatter={(value: any) => [formatCurrency(value), '']}
+            />
+            <Area type="monotone" dataKey="profit" stroke="#ec4899" strokeWidth={2} fillOpacity={1} fill="url(#colorProfit)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
 
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="font-bold text-slate-700 flex items-center gap-2">
-                <Target size={18} className="text-pink-500" />
-                Meta Mensal
-              </h4>
-              <button 
-                onClick={() => setShowGoalEditor(!showGoalEditor)}
-                className="text-xs text-pink-500 font-semibold hover:underline"
-              >
-                Editar
-              </button>
-            </div>
-            
-            {showGoalEditor ? (
-              <div className="flex gap-2">
-                <input 
-                  type="number" 
-                  value={tempGoal}
-                  onChange={(e) => setTempGoal(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-pink-500 outline-none"
-                />
-                <button onClick={handleUpdateGoal} className="bg-pink-500 text-white px-3 py-2 rounded-lg font-bold">Salvar</button>
-              </div>
-            ) : (
-              <>
-                <div className="flex items-end justify-between mb-2">
-                  <span className="text-3xl font-black text-slate-800">{Math.max(0, goalProgress).toFixed(0)}%</span>
-                  <span className="text-sm text-slate-500">de {formatCurrency(data.config.metaLucroMensal)}</span>
+      {/* Recent Activity List (Detailed) */}
+      <div className="space-y-2">
+        <h3 className="font-bold text-slate-700 px-1 text-sm">Últimas Movimentações</h3>
+        {recentTransactions.length === 0 ? (
+          <p className="text-center text-slate-400 text-xs py-4">Nenhuma movimentação este mês.</p>
+        ) : (
+          recentTransactions.map((item) => (
+            <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white shrink-0
+                  ${item.type === 'sale' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
+                   {item.type === 'sale' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                 </div>
-                <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-pink-500 h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${Math.min(100, Math.max(0, goalProgress))}%` }}
-                  ></div>
-                </div>
-                <p className="mt-4 text-xs text-slate-400 leading-relaxed italic">
-                  {goalProgress >= 100 ? "🎉 Parabéns! Você atingiu sua meta de lucro!" : `Faltam ${formatCurrency(data.config.metaLucroMensal - monthData.profit)} para sua meta.`}
-                </p>
-              </>
-            )}
-          </div>
-
-          <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl">
-             <h4 className="font-bold mb-4 flex items-center gap-2">
-                <Calculator size={18} className="text-pink-400" />
-                Médias Diárias
-              </h4>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wider">Lucro / Dia (Total)</p>
-                  <p className="text-xl font-bold">{formatCurrency(profitPerTotalDay)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wider">Lucro / Dia com Movimento</p>
-                  <p className="text-xl font-bold">{formatCurrency(profitPerMovementDay)}</p>
-                  <p className="text-[10px] text-slate-500 mt-1">* {daysWithMovement} dias com vendas ou despesas.</p>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-bold text-slate-700 truncate">{item.descricao}</span>
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                    <Clock size={10} />
+                    <span>{formatDateTimeBR(item.data)}</span>
+                  </div>
                 </div>
               </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Daily Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="p-6 border-b">
-          <h4 className="font-bold text-slate-700">Resumo Diário</h4>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
-              <tr>
-                <th className="px-6 py-4">Dia</th>
-                <th className="px-6 py-4">Receitas</th>
-                <th className="px-6 py-4">Despesas</th>
-                <th className="px-6 py-4 text-right">Lucro</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y text-sm">
-              {dailyData.filter(d => d.Receita > 0 || d.Despesa > 0).map(d => (
-                <tr key={d.day} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-medium">{String(d.day).padStart(2, '0')}/{selectedMonth.split('-')[1]}</td>
-                  <td className="px-6 py-4 text-emerald-600 font-medium">{formatCurrency(d.Receita)}</td>
-                  <td className="px-6 py-4 text-rose-600 font-medium">{formatCurrency(d.Despesa)}</td>
-                  <td className={`px-6 py-4 text-right font-bold ${d.Lucro >= 0 ? 'text-slate-700' : 'text-rose-500'}`}>
-                    {formatCurrency(d.Lucro)}
-                  </td>
-                </tr>
-              ))}
-              {daysWithMovement === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic">
-                    Sem movimentações registradas neste mês.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              <span className={`font-bold text-sm whitespace-nowrap ml-2 ${item.type === 'sale' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {item.type === 'sale' ? '+' : '-'}{formatCurrency(item.value)}
+              </span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
