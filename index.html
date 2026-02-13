@@ -9,29 +9,34 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Delícias das Maria's - Confeitaria</title>
     
-    <!-- Tailwind CSS -->
+    <!-- 1. Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Fonts -->
+    <!-- 2. Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Babel Standalone -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- jsPDF & AutoTable (UMD) -->
+    <!-- 3. Polyfill para process.env (Necessário para Recharts/React em ESM) -->
+    <script>
+        window.process = { env: { NODE_ENV: 'production' } };
+    </script>
+
+    <!-- 4. jsPDF & AutoTable (Mantido via CDN UMD Global para estabilidade) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 
-    <!-- Import Map for React, Recharts, Lucide -->
+    <!-- 5. Babel Standalone -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- 6. Import Map (Define onde buscar os módulos) -->
     <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.3.1",
-    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
-    "recharts": "https://esm.sh/recharts@2.13.0?external=react,react-dom",
-    "lucide-react": "https://esm.sh/lucide-react@0.454.0?external=react",
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "recharts": "https://esm.sh/recharts@2.12.3?deps=react@18.2.0,react-dom@18.2.0",
+    "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0",
     "react/": "https://esm.sh/react@^19.2.4/",
     "jspdf": "https://esm.sh/jspdf@^4.1.0",
     "jspdf-autotable": "https://esm.sh/jspdf-autotable@^5.0.7"
@@ -43,12 +48,14 @@
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .recharts-wrapper { width: 100% !important; height: 100% !important; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden selection:bg-pink-200">
     <div id="root" class="h-full"></div>
 
-    <script type="text/babel" data-type="module" data-presets="typescript,react">
+    <!-- Script Principal do App (Tipo Module para suportar Imports) -->
+    <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
@@ -59,7 +66,7 @@
             Table as TableIcon, AlertTriangle, History 
         } from 'lucide-react';
 
-        // jsPDF is loaded as global via script tag
+        // jsPDF acessado via window pois foi carregado via script tag normal
         const { jsPDF } = window.jspdf;
 
         // === CONSTANTS ===
