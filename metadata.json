@@ -1,0 +1,5 @@
+{
+  "name": "Delícias das Maria's - Confeitaria",
+  "description": "Sistema de gestão financeira para confeitarias com controle de vendas, despesas, dashboard mensal e relatórios, funcionando inteiramente offline via LocalStorage.",
+  "requestFramePermissions": []
+}
