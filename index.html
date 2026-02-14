@@ -51,8 +51,11 @@
         .recharts-wrapper { width: 100% !important; height: 100% !important; }
         
         /* Animação suave para o login */
-        .fade-in { animation: fadeIn 0.5s ease-in-out; }
+        .fade-in { animation: fadeIn 0.4s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .scale-in { animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-[100dvh] overflow-hidden selection:bg-pink-200">
@@ -68,7 +71,7 @@
             Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, 
             ChevronLeft, ChevronRight, Edit3, Clock, FileText, Trash, 
             Table as TableIcon, AlertTriangle, History, Lock, User, LogOut, KeyRound,
-            Eye, EyeOff
+            Eye, EyeOff, Users, ArrowLeft, UserPlus
         } from 'lucide-react';
 
         // jsPDF acessado via window pois foi carregado via script tag normal
@@ -79,7 +82,12 @@
         const EXPENSE_CATEGORIES = ['Ingredientes', 'Embalagens', 'Gás', 'Energia', 'Aluguel', 'Transporte', 'Marketing', 'Outros'];
         const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Outro'];
         const EXPENSE_TYPES = ['Fixa', 'Variável'];
-        const APP_STORAGE_KEY = 'doce_gestao_data';
+        
+        // Novas chaves de armazenamento para multi-usuário
+        const STORAGE_USERS_KEY = 'doce_gestao_users_v2'; 
+        const STORAGE_DATA_PREFIX = 'doce_gestao_data_';
+        // Chave legada para migração
+        const LEGACY_STORAGE_KEY = 'doce_gestao_data';
 
         // === UTILS ===
         const formatCurrency = (value) => {
@@ -126,179 +134,310 @@
             return parseFloat(clean) || 0;
         };
 
-        // === STORAGE SERVICE ===
-        const initialData = {
-            user: null, // { name: string, pin: string }
+        const getAvatarColor = (name) => {
+            const colors = ['bg-pink-500', 'bg-purple-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500', 'bg-teal-500'];
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            return colors[Math.abs(hash) % colors.length];
+        };
+
+        // === STORAGE SERVICE (MULTI-USER) ===
+        
+        // Estrutura padrão para um novo usuário
+        const initialUserData = {
             vendas: [],
             despesas: [],
-            config: {
-                metaLucroMensal: 3000
+            config: { metaLucroMensal: 3000 }
+        };
+
+        // 1. Migração de dados antigos (Legacy -> Multi-user)
+        const checkAndMigrateLegacyData = () => {
+            const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
+            if (legacyData) {
+                try {
+                    const parsed = JSON.parse(legacyData);
+                    // Se tiver usuário e dados, mas não tiver a estrutura nova de usuários
+                    if (parsed.user && parsed.user.name && !localStorage.getItem(STORAGE_USERS_KEY)) {
+                        const newId = generateId();
+                        const newUser = { id: newId, name: parsed.user.name, pin: parsed.user.pin };
+                        
+                        // Salva o usuário na lista de usuários
+                        localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify([newUser]));
+                        
+                        // Salva os dados financeiros no novo formato isolado
+                        const userFinancialData = {
+                            vendas: parsed.vendas || [],
+                            despesas: parsed.despesas || [],
+                            config: parsed.config || initialUserData.config
+                        };
+                        localStorage.setItem(STORAGE_DATA_PREFIX + newId, JSON.stringify(userFinancialData));
+                        
+                        // Remove o antigo para completar a migração
+                        localStorage.removeItem(LEGACY_STORAGE_KEY);
+                        return true;
+                    }
+                } catch (e) {
+                    console.error("Erro na migração", e);
+                }
             }
+            return false;
         };
 
-        const getStoredData = () => {
-            const stored = localStorage.getItem(APP_STORAGE_KEY);
-            if (!stored) return initialData;
-            try {
-                const parsed = JSON.parse(stored);
-                // Migração para versões antigas que não tinham 'user'
-                if (!parsed.user) parsed.user = null;
-                return parsed;
-            } catch (e) {
-                console.error("Error parsing storage", e);
-                return initialData;
-            }
+        // 2. Gerenciamento de Usuários
+        const getUsers = () => {
+            checkAndMigrateLegacyData();
+            const stored = localStorage.getItem(STORAGE_USERS_KEY);
+            return stored ? JSON.parse(stored) : [];
         };
 
-        const saveToStorage = (data) => {
-            localStorage.setItem(APP_STORAGE_KEY, JSON.stringify(data));
+        const saveUser = (user) => {
+            const users = getUsers();
+            users.push(user);
+            localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+            
+            // Inicializa banco de dados vazio para este usuário
+            localStorage.setItem(STORAGE_DATA_PREFIX + user.id, JSON.stringify(initialUserData));
         };
 
-        const clearAllData = () => {
-            localStorage.removeItem(APP_STORAGE_KEY);
+        // 3. Gerenciamento de Dados Financeiros (Por ID)
+        const getUserData = (userId) => {
+            const stored = localStorage.getItem(STORAGE_DATA_PREFIX + userId);
+            return stored ? JSON.parse(stored) : initialUserData;
         };
+
+        const saveUserData = (userId, data) => {
+            localStorage.setItem(STORAGE_DATA_PREFIX + userId, JSON.stringify(data));
+        };
+
+        const deleteUserAccount = (userId) => {
+            // Remove dados
+            localStorage.removeItem(STORAGE_DATA_PREFIX + userId);
+            // Remove da lista
+            const users = getUsers().filter(u => u.id !== userId);
+            localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+        };
+
 
         // === COMPONENTS ===
 
-        // 0. Auth Screen (Login/Register)
-        const AuthScreen = ({ hasUser, onLogin, onRegister, onReset }) => {
-            const [name, setName] = useState('');
+        // 0. Auth Screen (Multi-User)
+        const AuthScreen = ({ onLogin, onRegister }) => {
+            const [users, setUsers] = useState(getUsers());
+            const [view, setView] = useState('list'); // 'list', 'login', 'register'
+            const [selectedUser, setSelectedUser] = useState(null);
+            
+            // Login Form State
             const [pin, setPin] = useState('');
-            const [confirmPin, setConfirmPin] = useState('');
-            const [error, setError] = useState('');
             const [showPin, setShowPin] = useState(false);
+            const [error, setError] = useState('');
 
-            const handleSubmit = (e) => {
-                e.preventDefault();
+            // Register Form State
+            const [regName, setRegName] = useState('');
+            const [regPin, setRegPin] = useState('');
+            const [regConfirmPin, setRegConfirmPin] = useState('');
+
+            const handleUserClick = (user) => {
+                setSelectedUser(user);
+                setPin('');
                 setError('');
+                setView('login');
+            };
 
-                if (pin.length < 4) {
-                    setError('O PIN deve ter pelo menos 4 números.');
-                    return;
-                }
-
-                if (!hasUser) {
-                    // Modo Registro
-                    if (!name.trim()) {
-                        setError('Por favor, digite seu nome.');
-                        return;
-                    }
-                    if (pin !== confirmPin) {
-                        setError('Os PINs não conferem.');
-                        return;
-                    }
-                    onRegister(name, pin);
+            const handleLoginSubmit = (e) => {
+                e.preventDefault();
+                if (pin === selectedUser.pin) {
+                    onLogin(selectedUser);
                 } else {
-                    // Modo Login
-                    onLogin(pin);
+                    setError('PIN incorreto');
+                    setPin('');
                 }
             };
 
-            const handleResetRequest = () => {
-                if(confirm("Deseja criar uma nova conta? \n\nATENÇÃO: Isso apagará todos os dados financeiros atuais do dispositivo. Essa ação não pode ser desfeita.")) {
-                    onReset();
+            const handleRegisterSubmit = (e) => {
+                e.preventDefault();
+                if (!regName.trim()) return setError('Nome obrigatório');
+                if (regPin.length < 4) return setError('PIN deve ter 4+ dígitos');
+                if (regPin !== regConfirmPin) return setError('PINs não conferem');
+
+                const newUser = { id: generateId(), name: regName, pin: regPin };
+                saveUser(newUser);
+                
+                // Atualiza lista e reseta
+                setUsers(getUsers());
+                setRegName(''); setRegPin(''); setRegConfirmPin('');
+                setError('');
+                setView('list');
+                
+                // Opcional: Já logar direto
+                // onLogin(newUser); 
+            };
+
+            const handleDeleteUser = () => {
+                if(confirm(`Tem certeza que deseja apagar a conta de ${selectedUser.name}?\n\nTodos os dados financeiros serão perdidos permanentemente.`)) {
+                    deleteUserAccount(selectedUser.id);
+                    setUsers(getUsers());
+                    setView('list');
+                    setSelectedUser(null);
                 }
             };
 
-            return (
-                <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in overflow-y-auto">
-                    <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl overflow-hidden my-auto">
-                        <div className="bg-pink-500 p-8 text-center">
-                            <div className="bg-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                                <ShoppingBag className="text-pink-500" size={32} />
+            // VIEW: USER LIST
+            if (view === 'list') {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 fade-in">
+                        <div className="text-center mb-8">
+                            <div className="bg-pink-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-pink-200">
+                                <ShoppingBag className="text-white" size={32} />
                             </div>
-                            <h1 className="text-2xl font-bold text-white mb-1">Delícias das Maria's</h1>
-                            <p className="text-pink-100 text-sm">Gestão Financeira</p>
+                            <h1 className="text-2xl font-bold text-slate-800">Quem está usando?</h1>
+                            <p className="text-slate-400 text-sm">Selecione seu perfil para entrar</p>
                         </div>
-                        
-                        <div className="p-8">
-                            <h2 className="text-xl font-bold text-slate-800 text-center mb-6">
-                                {hasUser ? 'Bem-vindo(a) de volta!' : 'Criar sua conta'}
-                            </h2>
 
-                            <form onSubmit={handleSubmit} className="space-y-4">
-                                {!hasUser && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Seu Nome</label>
-                                        <div className="relative">
-                                            <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                            <input 
-                                                type="text" 
-                                                placeholder="Como quer ser chamada?" 
-                                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none"
-                                                value={name}
-                                                onChange={(e) => setName(e.target.value)}
-                                            />
-                                        </div>
+                        <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-8">
+                            {users.map(user => (
+                                <button key={user.id} onClick={() => handleUserClick(user)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:scale-105 transition-all flex flex-col items-center gap-3">
+                                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ${getAvatarColor(user.name)}`}>
+                                        {user.name.charAt(0).toUpperCase()}
                                     </div>
-                                )}
+                                    <span className="font-bold text-slate-700 truncate w-full text-center text-sm">{user.name}</span>
+                                </button>
+                            ))}
+                            <button onClick={() => setView('register')} className="bg-slate-100 p-4 rounded-2xl border border-dashed border-slate-300 hover:bg-white hover:border-pink-300 transition-all flex flex-col items-center justify-center gap-3 group">
+                                <div className="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 group-hover:bg-pink-100 group-hover:text-pink-500 transition-colors">
+                                    <Plus size={24} />
+                                </div>
+                                <span className="font-medium text-slate-400 text-sm group-hover:text-pink-500">Novo Usuário</span>
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">PIN de Acesso</label>
-                                    <div className="relative">
-                                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                        <input 
-                                            type={showPin ? "text" : "password"}
-                                            inputMode="numeric"
-                                            pattern="[0-9]*"
-                                            placeholder="****" 
-                                            maxLength={6}
-                                            className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-widest text-center text-lg"
-                                            value={pin}
-                                            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                                        />
-                                        <button 
-                                            type="button" 
-                                            onClick={() => setShowPin(!showPin)} 
-                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-pink-500 p-1"
-                                        >
-                                            {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
-                                        </button>
-                                    </div>
+            // VIEW: LOGIN (PIN ENTRY)
+            if (view === 'login') {
+                return (
+                    <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in">
+                        <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl overflow-hidden relative">
+                            <button onClick={() => setView('list')} className="absolute top-4 left-4 p-2 text-slate-400 hover:text-slate-600">
+                                <ArrowLeft size={24} />
+                            </button>
+                            
+                            <div className="pt-12 pb-8 px-8 text-center">
+                                <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4 shadow-lg ${getAvatarColor(selectedUser.name)}`}>
+                                    {selectedUser.name.charAt(0).toUpperCase()}
+                                </div>
+                                <h2 className="text-xl font-bold text-slate-800">Olá, {selectedUser.name.split(' ')[0]}!</h2>
+                                <p className="text-slate-400 text-xs mt-1">Digite seu PIN para acessar</p>
+                            </div>
+
+                            <form onSubmit={handleLoginSubmit} className="px-8 pb-8 space-y-4">
+                                <div className="relative">
+                                    <input 
+                                        type={showPin ? "text" : "password"}
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        autoFocus
+                                        placeholder="PIN" 
+                                        maxLength={6}
+                                        className="w-full pl-4 pr-12 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-[0.5em] text-center text-2xl text-slate-700"
+                                        value={pin}
+                                        onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                                    />
+                                    <button type="button" onClick={() => setShowPin(!showPin)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-pink-500">
+                                        {showPin ? <EyeOff size={20} /> : <Eye size={20} />}
+                                    </button>
                                 </div>
 
-                                {!hasUser && (
-                                    <div className="space-y-1">
-                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Confirmar PIN</label>
-                                        <div className="relative">
-                                            <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                                            <input 
-                                                type={showPin ? "text" : "password"} 
-                                                inputMode="numeric"
-                                                pattern="[0-9]*"
-                                                placeholder="****" 
-                                                maxLength={6}
-                                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-widest text-center text-lg"
-                                                value={confirmPin}
-                                                onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-
                                 {error && (
-                                    <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-xs font-bold flex items-center gap-2 justify-center">
+                                    <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-xs font-bold flex items-center gap-2 justify-center animate-pulse">
                                         <AlertCircle size={14} />
                                         {error}
                                     </div>
                                 )}
 
-                                <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-200 active:scale-95 transition-transform mt-4">
-                                    {hasUser ? 'Entrar no Sistema' : 'Começar Agora'}
+                                <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-200 active:scale-95 transition-transform">
+                                    Entrar
                                 </button>
-                            </form>
-
-                             {hasUser && (
-                                <div className="mt-6 text-center border-t pt-4">
-                                    <button onClick={handleResetRequest} className="text-xs text-slate-400 font-medium hover:text-pink-500 underline">
-                                        Esqueci meu PIN / Criar nova conta
+                                
+                                <div className="pt-4 border-t mt-4">
+                                    <button type="button" onClick={handleDeleteUser} className="text-xs text-slate-300 hover:text-rose-500 transition-colors w-full">
+                                        Remover conta deste dispositivo
                                     </button>
                                 </div>
-                            )}
+                            </form>
                         </div>
                     </div>
-                </div>
-            );
+                );
+            }
+
+            // VIEW: REGISTER
+            if (view === 'register') {
+                return (
+                    <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in">
+                        <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl overflow-hidden relative">
+                            <button onClick={() => setView('list')} className="absolute top-4 left-4 p-2 text-white/70 hover:text-white z-10">
+                                <ArrowLeft size={24} />
+                            </button>
+
+                            <div className="bg-pink-500 p-8 text-center pt-12">
+                                <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                                    <UserPlus className="text-white" size={32} />
+                                </div>
+                                <h1 className="text-xl font-bold text-white mb-1">Nova Conta</h1>
+                                <p className="text-pink-100 text-sm">Crie seu perfil pessoal</p>
+                            </div>
+                            
+                            <form onSubmit={handleRegisterSubmit} className="p-8 space-y-4">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-bold text-slate-500 uppercase ml-1">Nome</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ex: Maria Silva" 
+                                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none"
+                                        value={regName}
+                                        onChange={(e) => setRegName(e.target.value)}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">PIN</label>
+                                        <input 
+                                            type="tel" 
+                                            placeholder="****" 
+                                            maxLength={6}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none text-center font-bold tracking-widest"
+                                            value={regPin}
+                                            onChange={(e) => setRegPin(e.target.value.replace(/\D/g, ''))}
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Confirmar</label>
+                                        <input 
+                                            type="tel" 
+                                            placeholder="****" 
+                                            maxLength={6}
+                                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none text-center font-bold tracking-widest"
+                                            value={regConfirmPin}
+                                            onChange={(e) => setRegConfirmPin(e.target.value.replace(/\D/g, ''))}
+                                        />
+                                    </div>
+                                </div>
+
+                                {error && (
+                                    <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-xs font-bold text-center">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-200 active:scale-95 transition-transform mt-2">
+                                    Criar Perfil
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
         };
 
         // 1. Dashboard
@@ -899,9 +1038,10 @@
             };
 
             const handleReset = () => {
-                if (confirm('ATENÇÃO: Isso apagará TODOS os dados do sistema permanentemente.')) {
+                if (confirm('ATENÇÃO: Isso apagará TODOS os dados financeiros desta conta.')) {
                     if (confirm('Tem certeza? Essa ação não pode ser desfeita.')) {
-                        clearAllData();
+                        // Limpa apenas os dados do usuário atual, não todos
+                        setData(initialUserData);
                         window.location.reload();
                     }
                 }
@@ -954,8 +1094,8 @@
                             </div>
                             <div className="bg-rose-50 p-6 rounded-2xl shadow-sm border border-rose-100">
                                 <h4 className="font-bold mb-2 flex items-center gap-2 text-rose-700"><AlertTriangle size={20} /> Zona de Perigo</h4>
-                                <p className="text-rose-600 text-sm mb-4">Deseja recomeçar do zero? Esta ação irá apagar todas as vendas e despesas registradas e sua conta.</p>
-                                <button onClick={handleReset} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"><Trash size={18} /> Limpar Todos os Dados</button>
+                                <p className="text-rose-600 text-sm mb-4">Deseja limpar apenas os dados desta conta? (O usuário não será excluído, apenas os lançamentos)</p>
+                                <button onClick={handleReset} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"><Trash size={18} /> Limpar Lançamentos</button>
                             </div>
                         </div>
                     </div>
@@ -987,44 +1127,43 @@
 
         // === APP ROOT ===
         const App = () => {
-            const [data, setData] = useState(() => getStoredData());
+            const [currentUser, setCurrentUser] = useState(null);
+            const [data, setData] = useState(initialUserData);
             const [currentView, setCurrentView] = useState('dashboard');
-            const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [notification, setNotification] = useState(null);
 
-            useEffect(() => { saveToStorage(data); }, [data]);
+            // Carrega dados quando o usuário muda
+            useEffect(() => {
+                if (currentUser) {
+                    const userData = getUserData(currentUser.id);
+                    setData(userData);
+                }
+            }, [currentUser]);
+
+            // Salva dados sempre que mudam
+            useEffect(() => {
+                if (currentUser && data) {
+                    saveUserData(currentUser.id, data);
+                }
+            }, [data, currentUser]);
 
             const showNotification = (message, type = 'success') => {
                 setNotification({ message, type });
                 setTimeout(() => setNotification(null), 3000);
             };
 
-            const handleRegister = (name, pin) => {
-                setData(prev => ({ ...prev, user: { name, pin } }));
-                setIsAuthenticated(true);
-                showNotification(`Bem-vinda, ${name}!`);
-            };
-
-            const handleLogin = (inputPin) => {
-                if (data.user && data.user.pin === inputPin) {
-                    setIsAuthenticated(true);
-                    showNotification(`Olá novamente, ${data.user.name.split(' ')[0]}!`);
-                } else {
-                    showNotification('PIN incorreto.', 'error');
-                }
-            };
-            
-            const handleResetAccount = () => {
-                clearAllData();
-                setData(getStoredData()); // Reset data state to initial
-                showNotification('Dados resetados. Crie uma nova conta.', 'success');
+            const handleLogin = (user) => {
+                setCurrentUser(user);
+                showNotification(`Bem-vindo(a), ${user.name}!`);
             };
 
             const handleLogout = () => {
-                setIsAuthenticated(false);
+                setCurrentUser(null);
                 setCurrentView('dashboard');
+                setData(initialUserData); // Limpa da memória
             };
 
+            // Funções CRUD (operam sobre 'data', useEffect salva automaticamente)
             const addSale = (sale) => { setData(prev => ({ ...prev, vendas: [sale, ...prev.vendas] })); showNotification('Venda adicionada!'); };
             const updateSale = (updatedSale) => { setData(prev => ({ ...prev, vendas: prev.vendas.map(s => s.id === updatedSale.id ? updatedSale : s) })); showNotification('Venda atualizada!'); };
             const deleteSale = (id) => { setData(prev => ({ ...prev, vendas: prev.vendas.filter(s => s.id !== id) })); showNotification('Venda removida!'); };
@@ -1042,14 +1181,14 @@
                 </li>
             );
 
-            // Se não estiver autenticado, mostra login/cadastro
-            if (!isAuthenticated) {
+            // Se não houver usuário logado, mostra tela de Auth (Lista/Login/Registro)
+            if (!currentUser) {
                 return (
                     <>
                         {notification && (
                             <div className={`fixed top-4 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>{notification.message}</div>
                         )}
-                        <AuthScreen hasUser={!!data.user} onLogin={handleLogin} onRegister={handleRegister} onReset={handleResetAccount} />
+                        <AuthScreen onLogin={handleLogin} />
                     </>
                 );
             }
@@ -1057,18 +1196,26 @@
             return (
                 <div className="flex flex-col h-full max-w-md mx-auto bg-slate-50 md:max-w-full md:border-x md:border-slate-200 fade-in">
                     <header className="bg-white px-4 py-3 border-b shadow-sm sticky top-0 z-30 flex items-center justify-between shrink-0">
-                        <div className="flex items-center gap-2"><div className="bg-pink-500 p-1.5 rounded-lg"><ShoppingBag className="w-5 h-5 text-white" /></div><h1 className="font-bold text-lg text-slate-800">{data.user ? `Confeitaria da ${data.user.name.split(' ')[0]}` : "Delícias das Maria's"}</h1></div>
+                        <div className="flex items-center gap-2">
+                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-sm ${getAvatarColor(currentUser.name)}`}>
+                                {currentUser.name.charAt(0).toUpperCase()}
+                            </div>
+                            <h1 className="font-bold text-lg text-slate-800 truncate max-w-[150px]">{currentUser.name}</h1>
+                        </div>
                         <button onClick={handleLogout} className="p-2 bg-slate-100 rounded-full text-slate-400 hover:text-pink-500"><LogOut size={18} /></button>
                     </header>
+                    
                     {notification && (
                         <div className={`fixed top-16 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>{notification.message}</div>
                     )}
+                    
                     <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-32 scroll-smooth">
                         {currentView === 'dashboard' && <Dashboard data={data} updateConfig={updateConfig} />}
                         {currentView === 'vendas' && <SalesView vendas={data.vendas} onAdd={addSale} onUpdate={updateSale} onDelete={deleteSale} />}
                         {currentView === 'despesas' && <ExpensesView despesas={data.despesas} onAdd={addExpense} onUpdate={updateExpense} onDelete={deleteExpense} />}
                         {currentView === 'relatorios' && <ReportsView data={data} setData={setData} showNotification={showNotification} />}
                     </main>
+                    
                     <nav className="bg-white border-t border-slate-200 fixed bottom-0 w-full max-w-md md:max-w-full pb-safe z-40">
                         <ul className="flex justify-around items-center h-16">
                             <NavItem id="dashboard" icon={LayoutDashboard} label="Início" isActive={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
