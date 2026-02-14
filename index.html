@@ -56,6 +56,18 @@
         
         .scale-in { animation: scaleIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        /* Animação de tremer para modo de edição */
+        @keyframes shake {
+            0% { transform: rotate(0deg); }
+            25% { transform: rotate(1deg); }
+            50% { transform: rotate(0deg); }
+            75% { transform: rotate(-1deg); }
+            100% { transform: rotate(0deg); }
+        }
+        .animate-shake {
+            animation: shake 0.3s infinite ease-in-out;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-[100dvh] overflow-hidden selection:bg-pink-200">
@@ -71,7 +83,7 @@
             Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, 
             ChevronLeft, ChevronRight, Edit3, Clock, FileText, Trash, 
             Table as TableIcon, AlertTriangle, History, Lock, User, LogOut, KeyRound,
-            Eye, EyeOff, Users, ArrowLeft, UserPlus
+            Eye, EyeOff, Users, ArrowLeft, UserPlus, Settings2
         } from 'lucide-react';
 
         // jsPDF acessado via window pois foi carregado via script tag normal
@@ -225,6 +237,7 @@
             const [users, setUsers] = useState(getUsers());
             const [view, setView] = useState('list'); // 'list', 'login', 'register'
             const [selectedUser, setSelectedUser] = useState(null);
+            const [isEditing, setIsEditing] = useState(false);
             
             // Login Form State
             const [pin, setPin] = useState('');
@@ -237,10 +250,19 @@
             const [regConfirmPin, setRegConfirmPin] = useState('');
 
             const handleUserClick = (user) => {
-                setSelectedUser(user);
-                setPin('');
-                setError('');
-                setView('login');
+                if (isEditing) {
+                    if(confirm(`Excluir perfil de ${user.name}?\n\nEssa ação é irreversível e apagará todos os dados financeiros desta conta.`)) {
+                        deleteUserAccount(user.id);
+                        setUsers(getUsers());
+                        // Se não sobrar ninguém, sai do modo edição
+                        if (getUsers().length === 0) setIsEditing(false);
+                    }
+                } else {
+                    setSelectedUser(user);
+                    setPin('');
+                    setError('');
+                    setView('login');
+                }
             };
 
             const handleLoginSubmit = (e) => {
@@ -267,12 +289,10 @@
                 setRegName(''); setRegPin(''); setRegConfirmPin('');
                 setError('');
                 setView('list');
-                
-                // Opcional: Já logar direto
-                // onLogin(newUser); 
+                setIsEditing(false);
             };
 
-            const handleDeleteUser = () => {
+            const handleDeleteUserInsideLogin = () => {
                 if(confirm(`Tem certeza que deseja apagar a conta de ${selectedUser.name}?\n\nTodos os dados financeiros serão perdidos permanentemente.`)) {
                     deleteUserAccount(selectedUser.id);
                     setUsers(getUsers());
@@ -284,7 +304,18 @@
             // VIEW: USER LIST
             if (view === 'list') {
                 return (
-                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 fade-in">
+                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 fade-in relative">
+                        {users.length > 0 && (
+                            <div className="absolute top-6 right-6 z-10">
+                                <button 
+                                    onClick={() => setIsEditing(!isEditing)} 
+                                    className={`text-xs font-bold px-4 py-2 rounded-full transition-all border flex items-center gap-2 ${isEditing ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
+                                >
+                                    {isEditing ? <><X size={14} /> Concluir</> : <><Settings2 size={14} /> Gerenciar</>}
+                                </button>
+                            </div>
+                        )}
+
                         <div className="text-center mb-8">
                             <div className="bg-pink-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-pink-200">
                                 <ShoppingBag className="text-white" size={32} />
@@ -295,19 +326,35 @@
 
                         <div className="grid grid-cols-2 gap-4 w-full max-w-sm mb-8">
                             {users.map(user => (
-                                <button key={user.id} onClick={() => handleUserClick(user)} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:scale-105 transition-all flex flex-col items-center gap-3">
-                                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ${getAvatarColor(user.name)}`}>
+                                <button 
+                                    key={user.id} 
+                                    onClick={() => handleUserClick(user)} 
+                                    className={`relative bg-white p-4 rounded-2xl border shadow-sm transition-all flex flex-col items-center gap-3
+                                    ${isEditing ? 'animate-shake border-rose-200 bg-rose-50 cursor-pointer' : 'border-slate-100 hover:shadow-md hover:scale-105'}`}
+                                >
+                                    {isEditing && (
+                                        <div className="absolute top-2 right-2 text-white bg-rose-500 rounded-full p-1.5 shadow-md z-10">
+                                            <Trash2 size={12} />
+                                        </div>
+                                    )}
+                                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl ${getAvatarColor(user.name)} ${isEditing ? 'opacity-80' : ''}`}>
                                         {user.name.charAt(0).toUpperCase()}
                                     </div>
-                                    <span className="font-bold text-slate-700 truncate w-full text-center text-sm">{user.name}</span>
+                                    <span className={`font-bold truncate w-full text-center text-sm ${isEditing ? 'text-rose-600' : 'text-slate-700'}`}>
+                                        {user.name}
+                                    </span>
+                                    {isEditing && <span className="text-[10px] text-rose-400 font-medium -mt-2">Excluir</span>}
                                 </button>
                             ))}
-                            <button onClick={() => setView('register')} className="bg-slate-100 p-4 rounded-2xl border border-dashed border-slate-300 hover:bg-white hover:border-pink-300 transition-all flex flex-col items-center justify-center gap-3 group">
-                                <div className="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 group-hover:bg-pink-100 group-hover:text-pink-500 transition-colors">
-                                    <Plus size={24} />
-                                </div>
-                                <span className="font-medium text-slate-400 text-sm group-hover:text-pink-500">Novo Usuário</span>
-                            </button>
+                            
+                            {!isEditing && (
+                                <button onClick={() => setView('register')} className="bg-slate-100 p-4 rounded-2xl border border-dashed border-slate-300 hover:bg-white hover:border-pink-300 transition-all flex flex-col items-center justify-center gap-3 group">
+                                    <div className="w-14 h-14 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 group-hover:bg-pink-100 group-hover:text-pink-500 transition-colors">
+                                        <Plus size={24} />
+                                    </div>
+                                    <span className="font-medium text-slate-400 text-sm group-hover:text-pink-500">Novo Usuário</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 );
@@ -360,7 +407,7 @@
                                 </button>
                                 
                                 <div className="pt-4 border-t mt-4">
-                                    <button type="button" onClick={handleDeleteUser} className="text-xs text-slate-300 hover:text-rose-500 transition-colors w-full">
+                                    <button type="button" onClick={handleDeleteUserInsideLogin} className="text-xs text-slate-300 hover:text-rose-500 transition-colors w-full">
                                         Remover conta deste dispositivo
                                     </button>
                                 </div>
