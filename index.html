@@ -55,7 +55,7 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 h-screen overflow-hidden selection:bg-pink-200">
+<body class="bg-slate-50 text-slate-900 h-[100dvh] overflow-hidden selection:bg-pink-200">
     <div id="root" class="h-full"></div>
 
     <!-- Script Principal do App (Tipo Module para suportar Imports) -->
@@ -67,7 +67,8 @@
             LayoutDashboard, ShoppingBag, Receipt, BarChart3, AlertCircle, 
             Plus, Search, Trash2, Edit2, X, TrendingUp, TrendingDown, 
             ChevronLeft, ChevronRight, Edit3, Clock, FileText, Trash, 
-            Table as TableIcon, AlertTriangle, History, Lock, User, LogOut, KeyRound
+            Table as TableIcon, AlertTriangle, History, Lock, User, LogOut, KeyRound,
+            Eye, EyeOff
         } from 'lucide-react';
 
         // jsPDF acessado via window pois foi carregado via script tag normal
@@ -160,11 +161,12 @@
         // === COMPONENTS ===
 
         // 0. Auth Screen (Login/Register)
-        const AuthScreen = ({ hasUser, onLogin, onRegister }) => {
+        const AuthScreen = ({ hasUser, onLogin, onRegister, onReset }) => {
             const [name, setName] = useState('');
             const [pin, setPin] = useState('');
             const [confirmPin, setConfirmPin] = useState('');
             const [error, setError] = useState('');
+            const [showPin, setShowPin] = useState(false);
 
             const handleSubmit = (e) => {
                 e.preventDefault();
@@ -192,9 +194,15 @@
                 }
             };
 
+            const handleResetRequest = () => {
+                if(confirm("Deseja criar uma nova conta? \n\nATENÇÃO: Isso apagará todos os dados financeiros atuais do dispositivo. Essa ação não pode ser desfeita.")) {
+                    onReset();
+                }
+            };
+
             return (
-                <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in">
-                    <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl overflow-hidden">
+                <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in overflow-y-auto">
+                    <div className="bg-white w-full max-w-sm rounded-3xl shadow-xl overflow-hidden my-auto">
                         <div className="bg-pink-500 p-8 text-center">
                             <div className="bg-white w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
                                 <ShoppingBag className="text-pink-500" size={32} />
@@ -230,13 +238,22 @@
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                         <input 
-                                            type="tel" 
+                                            type={showPin ? "text" : "password"}
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
                                             placeholder="****" 
                                             maxLength={6}
-                                            className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-widest text-center text-lg"
+                                            className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-widest text-center text-lg"
                                             value={pin}
                                             onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
                                         />
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowPin(!showPin)} 
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-pink-500 p-1"
+                                        >
+                                            {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                                        </button>
                                     </div>
                                 </div>
 
@@ -246,7 +263,9 @@
                                         <div className="relative">
                                             <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                                             <input 
-                                                type="tel" 
+                                                type={showPin ? "text" : "password"} 
+                                                inputMode="numeric"
+                                                pattern="[0-9]*"
                                                 placeholder="****" 
                                                 maxLength={6}
                                                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-pink-500 outline-none font-bold tracking-widest text-center text-lg"
@@ -268,6 +287,14 @@
                                     {hasUser ? 'Entrar no Sistema' : 'Começar Agora'}
                                 </button>
                             </form>
+
+                             {hasUser && (
+                                <div className="mt-6 text-center border-t pt-4">
+                                    <button onClick={handleResetRequest} className="text-xs text-slate-400 font-medium hover:text-pink-500 underline">
+                                        Esqueci meu PIN / Criar nova conta
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -881,7 +908,7 @@
             };
 
             return (
-                <div className="space-y-8 pb-10 fade-in">
+                <div className="space-y-8 pb-10">
                     <div className="flex justify-between items-start">
                         <div>
                             <h2 className="text-2xl font-bold text-slate-800">Relatórios</h2>
@@ -986,6 +1013,12 @@
                     showNotification('PIN incorreto.', 'error');
                 }
             };
+            
+            const handleResetAccount = () => {
+                clearAllData();
+                setData(getStoredData()); // Reset data state to initial
+                showNotification('Dados resetados. Crie uma nova conta.', 'success');
+            };
 
             const handleLogout = () => {
                 setIsAuthenticated(false);
@@ -1016,7 +1049,7 @@
                         {notification && (
                             <div className={`fixed top-4 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>{notification.message}</div>
                         )}
-                        <AuthScreen hasUser={!!data.user} onLogin={handleLogin} onRegister={handleRegister} />
+                        <AuthScreen hasUser={!!data.user} onLogin={handleLogin} onRegister={handleRegister} onReset={handleResetAccount} />
                     </>
                 );
             }
@@ -1030,7 +1063,7 @@
                     {notification && (
                         <div className={`fixed top-16 left-4 right-4 z-50 p-3 rounded-lg shadow-xl text-center text-sm font-bold animate-bounce ${notification.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>{notification.message}</div>
                     )}
-                    <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 scroll-smooth">
+                    <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-32 scroll-smooth">
                         {currentView === 'dashboard' && <Dashboard data={data} updateConfig={updateConfig} />}
                         {currentView === 'vendas' && <SalesView vendas={data.vendas} onAdd={addSale} onUpdate={updateSale} onDelete={deleteSale} />}
                         {currentView === 'despesas' && <ExpensesView despesas={data.despesas} onAdd={addExpense} onUpdate={updateExpense} onDelete={deleteExpense} />}
