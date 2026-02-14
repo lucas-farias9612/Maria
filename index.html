@@ -95,10 +95,9 @@
         const PAYMENT_METHODS = ['Pix', 'Cartão', 'Dinheiro', 'Outro'];
         const EXPENSE_TYPES = ['Fixa', 'Variável'];
         
-        // Novas chaves de armazenamento para multi-usuário
+        // Chaves de armazenamento Local
         const STORAGE_USERS_KEY = 'doce_gestao_users_v2'; 
         const STORAGE_DATA_PREFIX = 'doce_gestao_data_';
-        // Chave legada para migração
         const LEGACY_STORAGE_KEY = 'doce_gestao_data';
 
         // === UTILS ===
@@ -153,49 +152,38 @@
             return colors[Math.abs(hash) % colors.length];
         };
 
-        // === STORAGE SERVICE (MULTI-USER) ===
+        // === STORAGE SERVICE (MULTI-USER LOCAL) ===
         
-        // Estrutura padrão para um novo usuário
         const initialUserData = {
             vendas: [],
             despesas: [],
             config: { metaLucroMensal: 3000 }
         };
 
-        // 1. Migração de dados antigos (Legacy -> Multi-user)
+        // Migração de dados antigos
         const checkAndMigrateLegacyData = () => {
             const legacyData = localStorage.getItem(LEGACY_STORAGE_KEY);
             if (legacyData) {
                 try {
                     const parsed = JSON.parse(legacyData);
-                    // Se tiver usuário e dados, mas não tiver a estrutura nova de usuários
                     if (parsed.user && parsed.user.name && !localStorage.getItem(STORAGE_USERS_KEY)) {
                         const newId = generateId();
                         const newUser = { id: newId, name: parsed.user.name, pin: parsed.user.pin };
-                        
-                        // Salva o usuário na lista de usuários
                         localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify([newUser]));
-                        
-                        // Salva os dados financeiros no novo formato isolado
                         const userFinancialData = {
                             vendas: parsed.vendas || [],
                             despesas: parsed.despesas || [],
                             config: parsed.config || initialUserData.config
                         };
                         localStorage.setItem(STORAGE_DATA_PREFIX + newId, JSON.stringify(userFinancialData));
-                        
-                        // Remove o antigo para completar a migração
                         localStorage.removeItem(LEGACY_STORAGE_KEY);
                         return true;
                     }
-                } catch (e) {
-                    console.error("Erro na migração", e);
-                }
+                } catch (e) { console.error("Erro na migração", e); }
             }
             return false;
         };
 
-        // 2. Gerenciamento de Usuários
         const getUsers = () => {
             checkAndMigrateLegacyData();
             const stored = localStorage.getItem(STORAGE_USERS_KEY);
@@ -206,12 +194,9 @@
             const users = getUsers();
             users.push(user);
             localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-            
-            // Inicializa banco de dados vazio para este usuário
             localStorage.setItem(STORAGE_DATA_PREFIX + user.id, JSON.stringify(initialUserData));
         };
 
-        // 3. Gerenciamento de Dados Financeiros (Por ID)
         const getUserData = (userId) => {
             const stored = localStorage.getItem(STORAGE_DATA_PREFIX + userId);
             return stored ? JSON.parse(stored) : initialUserData;
@@ -222,9 +207,7 @@
         };
 
         const deleteUserAccount = (userId) => {
-            // Remove dados
             localStorage.removeItem(STORAGE_DATA_PREFIX + userId);
-            // Remove da lista
             const users = getUsers().filter(u => u.id !== userId);
             localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
         };
@@ -232,29 +215,26 @@
 
         // === COMPONENTS ===
 
-        // 0. Auth Screen (Multi-User)
+        // 0. Auth Screen
         const AuthScreen = ({ onLogin, onRegister }) => {
             const [users, setUsers] = useState(getUsers());
-            const [view, setView] = useState('list'); // 'list', 'login', 'register'
+            const [view, setView] = useState('list');
             const [selectedUser, setSelectedUser] = useState(null);
             const [isEditing, setIsEditing] = useState(false);
             
-            // Login Form State
             const [pin, setPin] = useState('');
             const [showPin, setShowPin] = useState(false);
             const [error, setError] = useState('');
 
-            // Register Form State
             const [regName, setRegName] = useState('');
             const [regPin, setRegPin] = useState('');
             const [regConfirmPin, setRegConfirmPin] = useState('');
 
             const handleUserClick = (user) => {
                 if (isEditing) {
-                    if(confirm(`Excluir perfil de ${user.name}?\n\nEssa ação é irreversível e apagará todos os dados financeiros desta conta.`)) {
+                    if(confirm(`Excluir perfil de ${user.name}?\n\nEssa ação é irreversível e apagará todos os dados financeiros desta conta neste aparelho.`)) {
                         deleteUserAccount(user.id);
                         setUsers(getUsers());
-                        // Se não sobrar ninguém, sai do modo edição
                         if (getUsers().length === 0) setIsEditing(false);
                     }
                 } else {
@@ -284,21 +264,11 @@
                 const newUser = { id: generateId(), name: regName, pin: regPin };
                 saveUser(newUser);
                 
-                // Atualiza lista e reseta
                 setUsers(getUsers());
                 setRegName(''); setRegPin(''); setRegConfirmPin('');
                 setError('');
                 setView('list');
                 setIsEditing(false);
-            };
-
-            const handleDeleteUserInsideLogin = () => {
-                if(confirm(`Tem certeza que deseja apagar a conta de ${selectedUser.name}?\n\nTodos os dados financeiros serão perdidos permanentemente.`)) {
-                    deleteUserAccount(selectedUser.id);
-                    setUsers(getUsers());
-                    setView('list');
-                    setSelectedUser(null);
-                }
             };
 
             // VIEW: USER LIST
@@ -360,7 +330,7 @@
                 );
             }
 
-            // VIEW: LOGIN (PIN ENTRY)
+            // VIEW: LOGIN
             if (view === 'login') {
                 return (
                     <div className="min-h-screen bg-pink-50 flex items-center justify-center p-4 fade-in">
@@ -405,12 +375,6 @@
                                 <button type="submit" className="w-full bg-pink-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-pink-200 active:scale-95 transition-transform">
                                     Entrar
                                 </button>
-                                
-                                <div className="pt-4 border-t mt-4">
-                                    <button type="button" onClick={handleDeleteUserInsideLogin} className="text-xs text-slate-300 hover:text-rose-500 transition-colors w-full">
-                                        Remover conta deste dispositivo
-                                    </button>
-                                </div>
                             </form>
                         </div>
                     </div>
@@ -533,7 +497,7 @@
                 setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
             };
 
-            // CUSTOM TOOLTIP para o gráfico
+            // Custom Tooltip para Lucro/Prejuízo
             const CustomTooltip = ({ active, payload, label }) => {
                 if (active && payload && payload.length) {
                     const value = payload[0].value;
