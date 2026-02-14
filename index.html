@@ -215,12 +215,42 @@
 
         // === COMPONENTS ===
 
+        // Novo Componente: Modal de Confirmação Personalizado
+        const ConfirmModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirmar", cancelText = "Cancelar", isDestructive = false }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 fade-in">
+                    <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden scale-in">
+                        <div className="p-6 text-center">
+                            <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${isDestructive ? 'bg-rose-100 text-rose-500' : 'bg-blue-100 text-blue-500'}`}>
+                                <AlertTriangle size={24} />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
+                            <p className="text-sm text-slate-500 mb-6">{message}</p>
+                            <div className="flex gap-3">
+                                <button onClick={onClose} className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold rounded-xl hover:bg-slate-200 transition-colors">
+                                    {cancelText}
+                                </button>
+                                <button onClick={() => { onConfirm(); onClose(); }} className={`flex-1 py-3 font-bold rounded-xl text-white transition-transform active:scale-95 ${isDestructive ? 'bg-rose-500 shadow-lg shadow-rose-200' : 'bg-blue-500 shadow-lg shadow-blue-200'}`}>
+                                    {confirmText}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         // 0. Auth Screen
         const AuthScreen = ({ onLogin, onRegister }) => {
             const [users, setUsers] = useState(getUsers());
             const [view, setView] = useState('list');
             const [selectedUser, setSelectedUser] = useState(null);
             const [isEditing, setIsEditing] = useState(false);
+            
+            // Modal States
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+            const [userToDelete, setUserToDelete] = useState(null);
             
             const [pin, setPin] = useState('');
             const [showPin, setShowPin] = useState(false);
@@ -232,16 +262,21 @@
 
             const handleUserClick = (user) => {
                 if (isEditing) {
-                    if(confirm(`Excluir perfil de ${user.name}?\n\nEssa ação é irreversível e apagará todos os dados financeiros desta conta neste aparelho.`)) {
-                        deleteUserAccount(user.id);
-                        setUsers(getUsers());
-                        if (getUsers().length === 0) setIsEditing(false);
-                    }
+                    setUserToDelete(user);
+                    setShowDeleteConfirm(true);
                 } else {
                     setSelectedUser(user);
                     setPin('');
                     setError('');
                     setView('login');
+                }
+            };
+
+            const confirmDeleteUser = () => {
+                if (userToDelete) {
+                    deleteUserAccount(userToDelete.id);
+                    setUsers(getUsers());
+                    if (getUsers().length === 0) setIsEditing(false);
                 }
             };
 
@@ -326,6 +361,16 @@
                                 </button>
                             )}
                         </div>
+
+                        <ConfirmModal 
+                            isOpen={showDeleteConfirm}
+                            onClose={() => setShowDeleteConfirm(false)}
+                            onConfirm={confirmDeleteUser}
+                            title={`Excluir ${userToDelete?.name}?`}
+                            message="Essa ação é irreversível e apagará todos os dados financeiros desta conta neste aparelho."
+                            confirmText="Sim, excluir"
+                            isDestructive={true}
+                        />
                     </div>
                 );
             }
@@ -644,6 +689,10 @@
             const [search, setSearch] = useState('');
             const [filterCategory, setFilterCategory] = useState('all');
             const [displayValue, setDisplayValue] = useState('');
+            
+            // Confirm Modal
+            const [itemToDelete, setItemToDelete] = useState(null);
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
             const [formData, setFormData] = useState({
                 data: getCurrentDateTimeLocal(),
@@ -702,9 +751,8 @@
             };
 
             const handleDelete = (id) => {
-                if (window.confirm('Tem certeza que deseja excluir esta venda?')) {
-                    onDelete(id);
-                }
+                setItemToDelete(id);
+                setShowDeleteConfirm(true);
             };
 
             return (
@@ -807,6 +855,16 @@
                             </div>
                         </div>
                     )}
+
+                    <ConfirmModal 
+                        isOpen={showDeleteConfirm}
+                        onClose={() => setShowDeleteConfirm(false)}
+                        onConfirm={() => onDelete(itemToDelete)}
+                        title="Excluir Venda?"
+                        message="Tem certeza que deseja apagar este registro de venda?"
+                        confirmText="Apagar"
+                        isDestructive={true}
+                    />
                 </section>
             );
         };
@@ -818,6 +876,10 @@
             const [search, setSearch] = useState('');
             const [filterCategory, setFilterCategory] = useState('all');
             const [displayValue, setDisplayValue] = useState('');
+            
+            // Confirm Modal
+            const [itemToDelete, setItemToDelete] = useState(null);
+            const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
             const [formData, setFormData] = useState({
                 data: getCurrentDateTimeLocal(),
@@ -874,9 +936,8 @@
             };
 
             const handleDelete = (id) => {
-                if (window.confirm('Tem certeza que deseja excluir esta despesa?')) {
-                    onDelete(id);
-                }
+                setItemToDelete(id);
+                setShowDeleteConfirm(true);
             };
 
             return (
@@ -966,12 +1027,22 @@
                             </div>
                         </div>
                     )}
+                    <ConfirmModal 
+                        isOpen={showDeleteConfirm}
+                        onClose={() => setShowDeleteConfirm(false)}
+                        onConfirm={() => onDelete(itemToDelete)}
+                        title="Excluir Despesa?"
+                        message="Tem certeza que deseja apagar este registro de despesa?"
+                        confirmText="Apagar"
+                        isDestructive={true}
+                    />
                 </section>
             );
         };
 
         // 4. ReportsView
         const ReportsView = ({ data, setData, showNotification }) => {
+            const [showResetConfirm, setShowResetConfirm] = useState(false);
             const currentDateTime = formatDateTimeBR(new Date().toISOString());
 
             const monthlySummary = useMemo(() => {
@@ -1071,14 +1142,10 @@
                 showNotification('Relatório completo (PDF) gerado!');
             };
 
-            const handleReset = () => {
-                if (confirm('ATENÇÃO: Isso apagará TODOS os dados financeiros desta conta.')) {
-                    if (confirm('Tem certeza? Essa ação não pode ser desfeita.')) {
-                        // Limpa apenas os dados do usuário atual, não todos
-                        setData(initialUserData);
-                        window.location.reload();
-                    }
-                }
+            const confirmReset = () => {
+                // Limpa apenas os dados do usuário atual, não todos
+                setData(initialUserData);
+                window.location.reload();
             };
 
             return (
@@ -1129,7 +1196,7 @@
                             <div className="bg-rose-50 p-6 rounded-2xl shadow-sm border border-rose-100">
                                 <h4 className="font-bold mb-2 flex items-center gap-2 text-rose-700"><AlertTriangle size={20} /> Zona de Perigo</h4>
                                 <p className="text-rose-600 text-sm mb-4">Deseja limpar apenas os dados desta conta? (O usuário não será excluído, apenas os lançamentos)</p>
-                                <button onClick={handleReset} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"><Trash size={18} /> Limpar Lançamentos</button>
+                                <button onClick={() => setShowResetConfirm(true)} className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border border-rose-200 text-rose-600 hover:bg-rose-600 hover:text-white font-bold rounded-xl transition-colors"><Trash size={18} /> Limpar Lançamentos</button>
                             </div>
                         </div>
                     </div>
@@ -1155,6 +1222,16 @@
                             </table>
                         </div>
                     </div>
+                    
+                    <ConfirmModal 
+                        isOpen={showResetConfirm}
+                        onClose={() => setShowResetConfirm(false)}
+                        onConfirm={confirmReset}
+                        title="Zerar Dados Financeiros?"
+                        message="Tem certeza? Essa ação não pode ser desfeita e apagará todas as vendas e despesas."
+                        confirmText="Limpar Tudo"
+                        isDestructive={true}
+                    />
                 </div>
             );
         };
